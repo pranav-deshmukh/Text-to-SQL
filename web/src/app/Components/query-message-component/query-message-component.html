@@ -1,0 +1,81 @@
+<ng-container *ngIf="message.role === 'user'; else assistantMessage">
+  <div class="message-row user-row">
+    <div class="user-bubble">{{ message.question }}</div>
+  </div>
+</ng-container>
+
+<ng-template #assistantMessage>
+  <div class="assistant-stack">
+    <div *ngIf="message.error" class="error-card">
+      <div class="error-line">
+        <span>⚠</span>
+        <span>{{ message.error }}</span>
+      </div>
+      <div *ngIf="message.detail" class="error-detail">{{ message.detail }}</div>
+      <div *ngIf="message.sql && message.sql !== 'ERROR'" class="error-sql">
+        LLM output: {{ message.sql }}
+      </div>
+    </div>
+
+    <button *ngIf="message.sql" type="button" class="sql-toggle" (click)="toggleSql()">
+      <span class="toggle-icon" [class.expanded]="showSql">▶</span>
+      {{ showSql ? 'Hide' : 'View' }} Generated SQL
+    </button>
+
+    <div *ngIf="message.sql && showSql" class="sql-card">
+      <div class="sql-card-header">
+        <div class="window-dots">
+          <span class="dot coral"></span>
+          <span class="dot amber"></span>
+          <span class="dot success"></span>
+        </div>
+        <span class="sql-label">T-SQL</span>
+      </div>
+      <pre class="sql-code">{{ message.sql }}</pre>
+    </div>
+
+    <div *ngIf="message.data && message.data.rowCount > 0" class="results-card">
+      <div class="results-header">
+        <div class="results-meta">
+          <span class="pill">{{ message.data.rowCount }} rows</span>
+          <span>{{ message.data.columns.length }} columns</span>
+        </div>
+        <span class="execution-time">
+          <span class="success-dot">●</span>
+          {{ message.data.executionTimeMs }}ms
+        </span>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th *ngFor="let column of message.data.columns">{{ column }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let row of message.data.rows">
+              <td
+                *ngFor="let column of message.data.columns"
+                [class.numeric-cell]="isNumericValue(row, column)"
+                [class.empty-cell]="cellValue(row, column) === '—'"
+              >
+                {{ cellValue(row, column) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div *ngIf="message.data && message.data.rowCount === 0 && !message.error" class="empty-state-card">
+      <span>○</span>
+      <span>Query returned no results.</span>
+    </div>
+
+    <div *ngIf="message.tokens" class="token-usage">
+      <span *ngIf="message.tokens.prompt">↑ {{ message.tokens.prompt }} prompt</span>
+      <span *ngIf="message.tokens.completion">↓ {{ message.tokens.completion }} completion</span>
+    </div>
+  </div>
+</ng-template>

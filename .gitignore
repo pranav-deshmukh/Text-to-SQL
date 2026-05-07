@@ -10,7 +10,8 @@ services/query-engine/node_modules/
 web/node_modules/
 
 # Build outputs
-web/.next/
+web/.angular/
+web/dist/
 services/query-engine/dist/
 
 # Local docs
