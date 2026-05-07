@@ -1,5 +1,5 @@
-<!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
+# Angular frontend notes
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
-<!-- END:nextjs-agent-rules -->
+This folder contains the Angular frontend for QueryAssist.
+
+Use the standalone-component structure under `src/app`, keep feature code grouped under `quotes`, `Components`, `Models`, and `Services`, and prefer updating Angular config files in this folder instead of reintroducing framework-specific files from the prior Next.js setup.

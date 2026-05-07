@@ -1,0 +1,81 @@
+<div class="page-shell">
+  <header class="topbar">
+    <div class="content-width topbar-inner">
+      <div class="brand-group">
+        <div class="brand-mark">Q</div>
+        <div>
+          <div class="brand-title">QueryAssist</div>
+          <div class="brand-subtitle">LPL Financial — Operations Query Tool</div>
+        </div>
+      </div>
+
+      <div class="status-badge">
+        <span class="status-dot"></span>
+        <span>MS SQL Connected</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <div class="content-width">
+      <section *ngIf="messages.length === 0" class="empty-state">
+        <div class="hero-icon">⚡</div>
+        <h1>Ask anything about your data</h1>
+        <p>Natural language → SQL → Results, instantly</p>
+
+        <div class="suggestion-list">
+          <button
+            *ngFor="let suggestion of suggestions"
+            type="button"
+            class="suggestion-chip"
+            (click)="applySuggestion(suggestion)"
+          >
+            {{ suggestion }}
+          </button>
+        </div>
+      </section>
+
+      <section class="message-list">
+        <app-query-message-component
+          *ngFor="let message of messages; trackBy: trackByMessageId"
+          [message]="message"
+        ></app-query-message-component>
+
+        <div *ngIf="loading" class="loading-row">
+          <div class="loading-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <span>Generating SQL query...</span>
+        </div>
+
+        <div #messagesEnd></div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="footer-shell">
+    <form class="content-width composer" (ngSubmit)="submitQuery()">
+      <div class="input-shell" [class.input-shell-disabled]="loading">
+        <span class="input-icon">⌕</span>
+        <input
+          type="text"
+          name="query"
+          [(ngModel)]="input"
+          placeholder="Ask a question about your data..."
+          [disabled]="loading"
+        />
+        <button *ngIf="input" type="button" class="clear-button" (click)="input = ''">×</button>
+      </div>
+
+      <button type="submit" class="submit-button" [disabled]="loading || !input.trim()">
+        {{ loading ? '...' : 'Ask →' }}
+      </button>
+    </form>
+
+    <div class="content-width footer-hint">
+      <span>SELECT only · Read-only access · Validated before execution</span>
+    </div>
+  </footer>
+</div>
