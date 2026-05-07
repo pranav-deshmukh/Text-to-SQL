@@ -105,9 +105,15 @@ cd Text-to-SQL
 
 ### 2. Start Qdrant (vector DB)
 
+The repo includes a `docker-compose.yml` that runs Qdrant with a persistent volume:
+
 ```bash
-docker run -p 6333:6333 -v qdrant_data:/qdrant/storage qdrant/qdrant
+docker compose up -d
 ```
+
+This starts Qdrant on `http://localhost:6333` and persists vector data in a Docker volume (`qdrant_data`) so embeddings survive restarts.
+
+> **Without Docker / Qdrant:** The backend will still start, but the RAG retrieval step will fail on every query since there's no vector store to search. You must run Qdrant and seed it (`npm run seed`) at least once before queries will work.
 
 ### 3. Configure the backend
 
