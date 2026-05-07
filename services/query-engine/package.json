@@ -1,0 +1,29 @@
+{
+  "name": "query-engine",
+  "version": "0.1.0",
+  "description": "Text-to-SQL query engine for LPL Financial POC",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "seed": "tsx src/rag/seed.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.52.0",
+    "@qdrant/js-client-rest": "^1.17.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "msnodesqlv8": "^5.1.9",
+    "mssql": "^12.3.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/mssql": "^12.3.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

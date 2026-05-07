@@ -1,0 +1,18 @@
+# Environment files
+services/query-engine/.env
+services/query-engine/.env.*
+!services/query-engine/.env.example
+web/.env
+web/.env.*
+
+# Dependencies
+services/query-engine/node_modules/
+web/node_modules/
+
+# Build outputs
+web/.next/
+services/query-engine/dist/
+
+# Local docs
+context.md
+prompt.md
