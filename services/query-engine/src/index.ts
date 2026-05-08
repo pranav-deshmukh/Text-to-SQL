@@ -19,7 +19,7 @@ app.use(express.json());
 // without opening a separate connection.
 let dbConnectionString = "";
 
-// --- Initialize on startup ---
+
 
 async function bootstrap() {
 
