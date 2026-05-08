@@ -7,6 +7,7 @@ import { initSqlExecutor, executeSQL } from "./executor/sqlExecutor";
 import { initVectorStore } from "./rag/vectorStore";
 import { retrieveContext } from "./rag/retriever";
 import { validateSQL, initValidator } from "./validator/sqlValidator";
+import { runAgent, streamAgent } from "./agent";
 
 dotenv.config();
 
@@ -95,6 +96,60 @@ async function bootstrap() {
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: "query-engine" });
+  });
+
+  /**
+   * POST /agent-query  (Phase 2 — LangGraph agent with self-correction)
+   * Body: { question: string }
+   * The agent retries up to 2 times on validation/execution errors.
+   */
+  app.post("/agent-query", async (req, res) => {
+    const { question } = req.body;
+
+    if (!question || typeof question !== "string") {
+      return res.status(400).json({ error: "Missing 'question' in request body" });
+    }
+
+    try {
+      const result = await runAgent(question);
+
+      if (result.status === "success") {
+        return res.json({
+          question: result.question,
+          sql: result.sql,
+          data: result.data,
+          retrievedTables: result.retrievedTables,
+          retryCount: result.retryCount,
+          errorHistory: result.errorHistory,
+        });
+      } else {
+        return res.status(400).json({
+          error: "Agent could not generate a valid query after retries",
+          sql: result.sql,
+          detail: result.error,
+          retryCount: result.retryCount,
+          errorHistory: result.errorHistory,
+        });
+      }
+    } catch (err: any) {
+      console.error("🤖 [Agent] Unexpected error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * POST /agent-query/stream  (Phase 2 — SSE streaming)
+   * Body: { question: string }
+   * Returns Server-Sent Events with real-time node updates.
+   */
+  app.post("/agent-query/stream", async (req, res) => {
+    const { question } = req.body;
+
+    if (!question || typeof question !== "string") {
+      return res.status(400).json({ error: "Missing 'question' in request body" });
+    }
+
+    await streamAgent(question, res);
   });
 
   // --- Start ---

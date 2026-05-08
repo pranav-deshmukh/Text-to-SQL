@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, Input } from '@angular/core';
-import { Message } from '../../Models/message';
+import { AgentStep, Message } from '../../Models/message';
 
 @Component({
   selector: 'app-query-message-component',
@@ -25,5 +25,17 @@ export class QueryMessageComponent {
 
   isNumericValue(row: Record<string, unknown>, column: string): boolean {
     return typeof row[column] === 'number';
+  }
+
+  workflowLabel(step: AgentStep): string {
+    const labels: Record<string, string> = {
+      retrieve: 'Retrieve schema',
+      generate: 'Generate SQL',
+      validate: 'Validate SQL',
+      execute: 'Execute query',
+      error: 'Error',
+    };
+
+    return labels[step.node] || step.node;
   }
 }
