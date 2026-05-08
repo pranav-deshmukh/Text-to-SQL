@@ -1,6 +1,18 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import {
+  AlertTriangle,
+  Bot,
+  Check,
+  CircleX,
+  Loader2,
+  RotateCcw,
+  Search,
+  ShieldCheck,
+  Wrench,
+  Zap,
+} from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
@@ -18,9 +30,17 @@ interface Message {
   sql?: string;
   data?: QueryResult;
   error?: string;
-  detail?: string;   // validator reason (e.g. which layer failed and why)
+  detail?: string;
   tokens?: { prompt?: number; completion?: number };
+  agentSteps?: AgentStep[];   // live agent step tracker
+  retryCount?: number;
   timestamp: Date;
+}
+
+interface AgentStep {
+  node: string;
+  status: "running" | "done" | "error";
+  detail?: string;
 }
 
 const SUGGESTIONS = [
@@ -35,6 +55,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [showSql, setShowSql] = useState<Record<string, boolean>>({});
+  const [mode, setMode] = useState<"pipeline" | "agent">("agent");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -57,36 +78,164 @@ export default function Home() {
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
-    try {
-      const res = await fetch(`${API_URL}/query`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
-      });
-
-      const body = await res.json();
-
+    if (mode === "agent") {
+      // SSE streaming for agent mode
+      const assistantId = crypto.randomUUID();
       const assistantMsg: Message = {
-        id: crypto.randomUUID(),
+        id: assistantId,
         role: "assistant",
-        sql: body.sql,
-        data: body.data,
-        error: body.error,
-        detail: body.detail,
-        tokens: body.tokens,
+        agentSteps: [{ node: "retrieve", status: "running" }],
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err: any) {
-      const errorMsg: Message = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        error: err.message || "Failed to connect to query engine",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, errorMsg]);
-    } finally {
-      setLoading(false);
+
+      try {
+        const res = await fetch(`${API_URL}/agent-query/stream`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question }),
+        });
+
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        const nodeLabels: Record<string, string> = {
+          retrieve: "Retrieving schema",
+          generate: "Generating SQL",
+          validate: "Validating SQL",
+          execute: "Executing query",
+          error: "Error",
+        };
+
+        // Expected order for visual flow
+        const nodeOrder = ["retrieve", "generate", "validate", "execute"];
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          let eventType = "";
+          for (const line of lines) {
+            if (line.startsWith("event: ")) {
+              eventType = line.slice(7).trim();
+            } else if (line.startsWith("data: ") && eventType) {
+              const data = JSON.parse(line.slice(6));
+
+              if (eventType === "node_end") {
+                setMessages((prev) => prev.map((msg) => {
+                  if (msg.id !== assistantId) return msg;
+
+                  const steps = [...(msg.agentSteps || [])];
+                  // Mark current node as done
+                  const existingIdx = steps.findIndex(s => s.node === data.node);
+                  if (existingIdx >= 0) {
+                    steps[existingIdx] = {
+                      node: data.node,
+                      status: data.validationError || data.executionError ? "error" : "done",
+                      detail: data.validationError || data.executionError || undefined,
+                    };
+                  } else {
+                    steps.push({
+                      node: data.node,
+                      status: data.validationError || data.executionError ? "error" : "done",
+                      detail: data.validationError || data.executionError || undefined,
+                    });
+                  }
+
+                  // Add next node as "running" if there's more to do
+                  const currentOrderIdx = nodeOrder.indexOf(data.node);
+                  if (!data.validationError && !data.executionError && currentOrderIdx < nodeOrder.length - 1) {
+                    const nextNode = nodeOrder[currentOrderIdx + 1];
+                    if (!steps.find(s => s.node === nextNode)) {
+                      steps.push({ node: nextNode, status: "running" });
+                    }
+                  }
+
+                  // If retry (validation/exec error) — add retrieve/generate as running
+                  if (data.validationError && data.retryCount < 2) {
+                    steps.push({ node: "retrieve", status: "running", detail: "Retrying..." });
+                  }
+                  if (data.executionError && data.retryCount < 2) {
+                    steps.push({ node: "generate", status: "running", detail: "Retrying..." });
+                  }
+
+                  return {
+                    ...msg,
+                    agentSteps: steps,
+                    sql: data.sql || msg.sql,
+                    retryCount: data.retryCount ?? msg.retryCount,
+                  };
+                }));
+              } else if (eventType === "done") {
+                setMessages((prev) => prev.map((msg) => {
+                  if (msg.id !== assistantId) return msg;
+                  return {
+                    ...msg,
+                    sql: data.sql,
+                    data: data.data,
+                    error: data.error,
+                    retryCount: data.retryCount,
+                    agentSteps: msg.agentSteps?.map(s =>
+                      s.status === "running" ? { ...s, status: "done" as const } : s
+                    ),
+                  };
+                }));
+              } else if (eventType === "error") {
+                setMessages((prev) => prev.map((msg) => {
+                  if (msg.id !== assistantId) return msg;
+                  return { ...msg, error: data.error };
+                }));
+              }
+              eventType = "";
+            }
+          }
+        }
+      } catch (err: any) {
+        setMessages((prev) => prev.map((msg) => {
+          if (msg.id !== assistantId) return msg;
+          return { ...msg, error: err.message || "Stream connection failed" };
+        }));
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // Pipeline mode — simple fetch
+      try {
+        const res = await fetch(`${API_URL}/query`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question }),
+        });
+
+        const body = await res.json();
+
+        const assistantMsg: Message = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          sql: body.sql,
+          data: body.data,
+          error: body.error,
+          detail: body.detail,
+          tokens: body.tokens,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+      } catch (err: any) {
+        const errorMsg: Message = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          error: err.message || "Failed to connect to query engine",
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, errorMsg]);
+      } finally {
+        setLoading(false);
+      }
     }
   }
 
@@ -165,6 +314,50 @@ export default function Home() {
             }} />
             MS SQL Connected
           </div>
+
+          {/* Mode toggle */}
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            background: "var(--bg-card)",
+            border: "1px solid var(--border-bright)",
+            borderRadius: "20px",
+            padding: "3px",
+          }}>
+            <button
+              onClick={() => setMode("pipeline")}
+              style={{
+                padding: "4px 10px",
+                borderRadius: "16px",
+                fontSize: "11px",
+                fontWeight: "500",
+                border: "none",
+                cursor: "pointer",
+                background: mode === "pipeline" ? "var(--teal-primary)" : "transparent",
+                color: mode === "pipeline" ? "#fff" : "var(--text-muted)",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Pipeline
+            </button>
+            <button
+              onClick={() => setMode("agent")}
+              style={{
+                padding: "4px 10px",
+                borderRadius: "16px",
+                fontSize: "11px",
+                fontWeight: "500",
+                border: "none",
+                cursor: "pointer",
+                background: mode === "agent" ? "var(--teal-primary)" : "transparent",
+                color: mode === "agent" ? "#fff" : "var(--text-muted)",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Agent
+            </button>
+          </div>
         </div>
       </header>
 
@@ -184,11 +377,10 @@ export default function Home() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: "28px",
                 margin: "0 auto 20px",
                 boxShadow: "0 0 32px rgba(14,165,160,0.2)",
               }}>
-                ⚡
+                <Zap size={28} color="#ffffff" />
               </div>
               <h2 style={{
                 fontSize: "22px",
@@ -271,6 +463,76 @@ export default function Home() {
                 /* ── Assistant response ── */
                 <div key={msg.id} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
 
+                  {/* Agent Step Tracker */}
+                  {msg.agentSteps && msg.agentSteps.length > 0 && (
+                    <div style={{
+                      background: "var(--bg-card)",
+                      border: "1px solid var(--border-bright)",
+                      borderRadius: "12px",
+                      padding: "12px 16px",
+                      fontSize: "12px",
+                    }}>
+                      <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "8px", fontWeight: "600", letterSpacing: "0.03em", display: "flex", alignItems: "center", gap: "6px" }}>
+                        <Bot size={14} />
+                        <span>AGENT WORKFLOW</span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {msg.agentSteps.map((step, idx) => {
+                          const icons: Record<string, React.ReactNode> = {
+                            retrieve: <Search size={14} />,
+                            generate: <Wrench size={14} />,
+                            validate: <ShieldCheck size={14} />,
+                            execute: <Zap size={14} />,
+                            error: <CircleX size={14} />,
+                          };
+                          const labels: Record<string, string> = {
+                            retrieve: "Retrieve schema",
+                            generate: "Generate SQL",
+                            validate: "Validate SQL",
+                            execute: "Execute query",
+                            error: "Error",
+                          };
+                          const statusColors: Record<string, string> = {
+                            running: "var(--teal-bright)",
+                            done: "#6ee7b7",
+                            error: "var(--coral)",
+                          };
+                          return (
+                            <div key={idx} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <span style={{ width: "18px", textAlign: "center", display: "inline-flex", justifyContent: "center", alignItems: "center" }}>
+                                {step.status === "running" ? (
+                                  <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+                                ) : (
+                                  icons[step.node] || <CircleX size={14} />
+                                )}
+                              </span>
+                              <span style={{
+                                color: statusColors[step.status],
+                                fontWeight: step.status === "running" ? "600" : "400",
+                              }}>
+                                {labels[step.node] || step.node}
+                              </span>
+                              {step.detail && (
+                                <span style={{ color: "var(--coral)", fontSize: "11px", opacity: 0.8 }}>
+                                  — {step.detail.substring(0, 60)}
+                                </span>
+                              )}
+                              {step.status === "done" && !step.detail && (
+                                <span style={{ color: "#6ee7b7", fontSize: "11px", display: "inline-flex", alignItems: "center" }}><Check size={12} /></span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {msg.retryCount !== undefined && msg.retryCount > 0 && (
+                        <div style={{ marginTop: "6px", fontSize: "11px", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "6px" }}>
+                          <RotateCcw size={12} />
+                          <span>{msg.retryCount} retry(s) needed</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Error */}
                   {msg.error && (
                     <div style={{
@@ -285,7 +547,7 @@ export default function Home() {
                       gap: "6px",
                     }}>
                       <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
-                        <span>⚠</span>
+                        <AlertTriangle size={14} />
                         <span>{msg.error}</span>
                       </div>
                       {msg.detail && (
