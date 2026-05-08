@@ -9,9 +9,34 @@
         </div>
       </div>
 
-      <div class="status-badge">
-        <span class="status-dot"></span>
-        <span>MS SQL Connected</span>
+      <div class="topbar-actions">
+        <div class="status-badge">
+          <span class="status-dot"></span>
+          <span>MS SQL Connected</span>
+        </div>
+
+        <div
+          class="mode-toggle"
+          [class.agent-active]="mode === 'agent'"
+          aria-label="Execution mode selector"
+        >
+          <button
+            type="button"
+            class="mode-button"
+            [class.active]="mode === 'pipeline'"
+            (click)="setMode('pipeline')"
+          >
+            Pipeline
+          </button>
+          <button
+            type="button"
+            class="mode-button"
+            [class.active]="mode === 'agent'"
+            (click)="setMode('agent')"
+          >
+            Agent
+          </button>
+        </div>
       </div>
     </div>
   </header>
@@ -47,7 +72,7 @@
             <span></span>
             <span></span>
           </div>
-          <span>Generating SQL query...</span>
+          <span>{{ loadingLabel }}</span>
         </div>
 
         <div #messagesEnd></div>

@@ -6,6 +6,37 @@
 
 <ng-template #assistantMessage>
   <div class="assistant-stack">
+    <div *ngIf="message.agentSteps?.length" class="workflow-card">
+      <div class="workflow-title">
+        <span class="workflow-title-icon">⚙</span>
+        <span>AGENT WORKFLOW</span>
+      </div>
+
+      <div class="workflow-list">
+        <div *ngFor="let step of message.agentSteps" class="workflow-step">
+          <span class="workflow-step-icon" [class.running]="step.status === 'running'">
+            <ng-container [ngSwitch]="step.status">
+              <span *ngSwitchCase="'running'">◌</span>
+              <span *ngSwitchCase="'done'">✓</span>
+              <span *ngSwitchDefault>⚠</span>
+            </ng-container>
+          </span>
+
+          <span
+            class="workflow-step-label"
+            [class.running]="step.status === 'running'"
+            [class.error-text]="step.status === 'error'"
+          >
+            {{ workflowLabel(step) }}
+          </span>
+
+          <span *ngIf="step.detail" class="workflow-step-detail">— {{ step.detail }}</span>
+        </div>
+      </div>
+
+      <div *ngIf="message.retryCount" class="retry-note">↻ {{ message.retryCount }} retry(s) needed</div>
+    </div>
+
     <div *ngIf="message.error" class="error-card">
       <div class="error-line">
         <span>⚠</span>

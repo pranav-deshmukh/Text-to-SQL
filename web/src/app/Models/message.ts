@@ -1,5 +1,11 @@
 import { QueryResult } from './query-result';
 
+export interface AgentStep {
+  node: string;
+  status: 'running' | 'done' | 'error';
+  detail?: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -12,5 +18,7 @@ export interface Message {
     prompt?: number;
     completion?: number;
   };
+  agentSteps?: AgentStep[];
+  retryCount?: number;
   timestamp: Date;
 }

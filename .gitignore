@@ -17,3 +17,4 @@ services/query-engine/dist/
 # Local docs
 context.md
 prompt.md
+update_files/

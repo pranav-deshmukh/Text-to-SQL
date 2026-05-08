@@ -5,9 +5,9 @@ import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 import { take } from 'rxjs/operators';
 import { QueryMessageComponent } from '../Components/query-message-component/query-message-component';
-import { Message } from '../Models/message';
+import { AgentStep, Message } from '../Models/message';
 import { QueryResponse } from '../Models/query-response';
-import { QueryService } from '../Services/query-service';
+import { AgentStreamNodeEvent, QueryService } from '../Services/query-service';
 
 @Component({
   selector: 'app-quotes',
@@ -19,6 +19,8 @@ import { QueryService } from '../Services/query-service';
 export class QuotesComponent {
   @ViewChild('messagesEnd') private messagesEnd?: ElementRef<HTMLDivElement>;
 
+  readonly agentModeAvailable = true;
+
   readonly suggestions = [
     'Show total AUM by advisor',
     'Show total transaction amount by advisor',
@@ -28,6 +30,7 @@ export class QuotesComponent {
 
   input = '';
   loading = false;
+  mode: 'pipeline' | 'agent' = 'pipeline';
   messages: Message[] = [];
 
   constructor(
@@ -37,6 +40,14 @@ export class QuotesComponent {
 
   applySuggestion(suggestion: string): void {
     this.input = suggestion;
+  }
+
+  setMode(mode: 'pipeline' | 'agent'): void {
+    if (mode === 'agent' && !this.agentModeAvailable) {
+      return;
+    }
+
+    this.mode = mode;
   }
 
   trackByMessageId(_index: number, message: Message): string {
@@ -63,14 +74,22 @@ export class QuotesComponent {
     this.scrollToBottomSoon();
 
     try {
-      const response = await firstValueFrom(this.queryService.submitQuestion(question));
-      this.messages = [...this.messages, this.createAssistantMessage(response)];
+      if (this.mode === 'agent') {
+        await this.submitAgentQuery(question);
+      } else {
+        const response = await firstValueFrom(this.queryService.submitQuestion(question));
+        this.messages = [...this.messages, this.createAssistantMessage(response)];
+      }
     } catch (error) {
       this.messages = [...this.messages, this.createErrorMessage(error)];
     } finally {
       this.loading = false;
       this.scrollToBottomSoon();
     }
+  }
+
+  get loadingLabel(): string {
+    return this.mode === 'agent' ? 'Running agent workflow...' : 'Generating SQL query...';
   }
 
   private createAssistantMessage(response: QueryResponse): Message {
@@ -81,9 +100,127 @@ export class QuotesComponent {
       data: response.data,
       error: response.error,
       detail: response.detail,
+      retryCount: response.retryCount,
       tokens: response.tokens,
       timestamp: new Date(),
     };
+  }
+
+  private async submitAgentQuery(question: string): Promise<void> {
+    const assistantId = crypto.randomUUID();
+
+    this.messages = [
+      ...this.messages,
+      {
+        id: assistantId,
+        role: 'assistant',
+        agentSteps: [{ node: 'retrieve', status: 'running' }],
+        timestamp: new Date(),
+      },
+    ];
+    this.scrollToBottomSoon();
+
+    try {
+      await this.queryService.streamAgentQuestion(question, {
+        onNodeEnd: (event) => {
+          this.updateAgentMessage(assistantId, (message) => ({
+            ...message,
+            agentSteps: this.advanceAgentSteps(message.agentSteps || [], event),
+            sql: event.sql || message.sql,
+            retryCount: event.retryCount ?? message.retryCount,
+          }));
+        },
+        onDone: (response) => {
+          this.updateAgentMessage(assistantId, (message) => ({
+            ...message,
+            sql: response.sql,
+            data: response.data,
+            error: response.error,
+            detail: response.detail,
+            retryCount: response.retryCount,
+            agentSteps: (message.agentSteps || []).map((step) =>
+              step.status === 'running' ? { ...step, status: 'done' } : step,
+            ),
+          }));
+        },
+        onError: (streamError) => {
+          this.updateAgentMessage(assistantId, (message) => ({
+            ...message,
+            error: streamError.error,
+            agentSteps: (message.agentSteps || []).map((step) =>
+              step.status === 'running' ? { ...step, status: 'error', detail: streamError.error } : step,
+            ),
+          }));
+        },
+      });
+    } catch {
+      const response = await firstValueFrom(this.queryService.submitAgentQuestion(question));
+      this.updateAgentMessage(assistantId, (message) => ({
+        ...message,
+        ...this.createAssistantMessage(response),
+        id: message.id,
+        timestamp: message.timestamp,
+        agentSteps: this.buildFallbackAgentSteps(response),
+      }));
+    }
+  }
+
+  private advanceAgentSteps(existingSteps: AgentStep[], event: AgentStreamNodeEvent): AgentStep[] {
+    const steps = [...existingSteps];
+    const eventError = event.validationError || event.executionError;
+    const currentIndex = steps.findIndex((step) => step.node === event.node);
+    const currentStep: AgentStep = {
+      node: event.node,
+      status: eventError ? 'error' : 'done',
+      detail: eventError,
+    };
+
+    if (currentIndex >= 0) {
+      steps[currentIndex] = currentStep;
+    } else {
+      steps.push(currentStep);
+    }
+
+    const nodeOrder: string[] = ['retrieve', 'generate', 'validate', 'execute'];
+    const orderIndex = nodeOrder.indexOf(event.node);
+
+    if (!eventError && orderIndex >= 0 && orderIndex < nodeOrder.length - 1) {
+      const nextNode = nodeOrder[orderIndex + 1];
+      if (!steps.some((step) => step.node === nextNode && step.status === 'running')) {
+        steps.push({ node: nextNode, status: 'running' });
+      }
+    }
+
+    if (event.validationError && (event.retryCount ?? 0) < 2) {
+      steps.push({ node: 'retrieve', status: 'running', detail: 'Retrying...' });
+    }
+
+    if (event.executionError && (event.retryCount ?? 0) < 2) {
+      steps.push({ node: 'generate', status: 'running', detail: 'Retrying...' });
+    }
+
+    return steps;
+  }
+
+  private buildFallbackAgentSteps(response: QueryResponse): AgentStep[] {
+    const baseSteps: AgentStep[] = [
+      { node: 'retrieve', status: 'done' },
+      { node: 'generate', status: 'done' },
+      { node: 'validate', status: response.error ? 'error' : 'done', detail: response.detail },
+    ];
+
+    if (!response.error && response.data) {
+      baseSteps.push({ node: 'execute', status: 'done' });
+    }
+
+    return baseSteps;
+  }
+
+  private updateAgentMessage(messageId: string, updater: (message: Message) => Message): void {
+    this.messages = this.messages.map((message) =>
+      message.id === messageId ? updater(message) : message,
+    );
+    this.scrollToBottomSoon();
   }
 
   private createErrorMessage(error: unknown): Message {

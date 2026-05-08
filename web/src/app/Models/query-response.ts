@@ -6,6 +6,7 @@ export interface QueryResponse {
   data?: QueryResult;
   error?: string;
   detail?: string;
+  retryCount?: number;
   tokens?: {
     prompt?: number;
     completion?: number;
