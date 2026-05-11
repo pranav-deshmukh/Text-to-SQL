@@ -5,7 +5,7 @@ import { assemblePromptFromRAG } from "./context/promptAssembler";
 import { callLLM } from "./llm/gemini";
 import { initSqlExecutor, executeSQL } from "./executor/sqlExecutor";
 import { initVectorStore } from "./rag/vectorStore";
-import { retrieveContext } from "./rag/retriever";
+import { retrieveContext, retrieveContextDetailed } from "./rag/retriever";
 import { validateSQL, initValidator } from "./validator/sqlValidator";
 import { runAgent, streamAgent } from "./agent";
 
@@ -96,6 +96,43 @@ async function bootstrap() {
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: "query-engine" });
+  });
+
+  /**
+   * POST /rag-inspect
+   * Body: { question: string, topK?: number }
+   * Returns the raw RAG matches plus the assembled context that will be sent to the LLM.
+   */
+  app.post("/rag-inspect", async (req, res) => {
+    const { question, topK } = req.body;
+
+    if (!question || typeof question !== "string") {
+      return res.status(400).json({ error: "Missing 'question' in request body" });
+    }
+
+    const requestedTopK = typeof topK === "number" && Number.isFinite(topK)
+      ? Math.max(1, Math.min(Math.floor(topK), 25))
+      : 10;
+
+    try {
+      const ragContext = await retrieveContextDetailed(question, requestedTopK);
+      const prompt = assemblePromptFromRAG(ragContext.schemaContext, question);
+
+      return res.json({
+        question,
+        topK: requestedTopK,
+        retrievedTables: ragContext.tables,
+        matches: ragContext.matches,
+        schemaContext: ragContext.schemaContext,
+        promptPreview: {
+          systemPrompt: prompt.systemPrompt,
+          userPrompt: prompt.userPrompt,
+        },
+      });
+    } catch (err: any) {
+      console.error("🔎 [RAG Inspect] Error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
   });
 
   /**

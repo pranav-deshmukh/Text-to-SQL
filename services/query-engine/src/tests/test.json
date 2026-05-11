@@ -1,0 +1,27 @@
+[
+  {
+    "id": "top_advisors_latest_aum",
+    "question": "Show the top 10 advisors by total AUM on the latest snapshot date, along with advisor name, office, region, number of active accounts, and average account AUM.",
+    "intendedSql": "WITH latest_snap AS (\n  SELECT MAX(snap_dt) AS snap_dt\n  FROM dbo.aum_snap\n)\nSELECT TOP 10\n  r.rep_id,\n  r.rep_nm,\n  r.ofc_cd,\n  r.rgn_cd,\n  COUNT(DISTINCT a.acct_id) AS active_account_count,\n  SUM(s.aum_val) AS total_aum,\n  AVG(CAST(s.aum_val AS DECIMAL(18,2))) AS avg_account_aum\nFROM dbo.aum_snap s\nJOIN latest_snap ls\n  ON s.snap_dt = ls.snap_dt\nJOIN dbo.acct_master a\n  ON a.acct_id = s.acct_id\nJOIN dbo.rep_master r\n  ON r.rep_id = s.rep_id\nWHERE r.rep_stts_cd = 'AC'\nGROUP BY r.rep_id, r.rep_nm, r.ofc_cd, r.rgn_cd\nORDER BY total_aum DESC, r.rep_id;"
+  },
+  {
+    "id": "office_rank_within_region",
+    "question": "For each office, show total AUM, number of advisors, number of accounts, average AUM per account, and rank offices within each region by total AUM.",
+    "intendedSql": "WITH latest_snap AS (\n  SELECT MAX(snap_dt) AS snap_dt\n  FROM dbo.aum_snap\n),\noffice_rollup AS (\n  SELECT\n    r.rgn_cd,\n    r.ofc_cd,\n    SUM(s.aum_val) AS total_aum,\n    COUNT(DISTINCT r.rep_id) AS advisor_count,\n    COUNT(DISTINCT a.acct_id) AS account_count,\n    AVG(CAST(s.aum_val AS DECIMAL(18,2))) AS avg_account_aum\n  FROM dbo.aum_snap s\n  JOIN latest_snap ls\n    ON s.snap_dt = ls.snap_dt\n  JOIN dbo.acct_master a\n    ON a.acct_id = s.acct_id\n  JOIN dbo.rep_master r\n    ON r.rep_id = s.rep_id\n  GROUP BY r.rgn_cd, r.ofc_cd\n)\nSELECT\n  rgn_cd,\n  ofc_cd,\n  total_aum,\n  advisor_count,\n  account_count,\n  avg_account_aum,\n  RANK() OVER (PARTITION BY rgn_cd ORDER BY total_aum DESC) AS office_rank_in_region\nFROM office_rollup\nORDER BY rgn_cd, office_rank_in_region, ofc_cd;"
+  },
+  {
+    "id": "advisor_aum_drop_vs_previous_snapshot",
+    "question": "Find advisors whose total AUM dropped compared to the previous snapshot date, and show the dollar change and percent change.",
+    "intendedSql": "WITH snap_dates AS (\n  SELECT DISTINCT snap_dt\n  FROM dbo.aum_snap\n),\nranked_dates AS (\n  SELECT\n    snap_dt,\n    DENSE_RANK() OVER (ORDER BY snap_dt DESC) AS dt_rank\n  FROM snap_dates\n),\ntarget_dates AS (\n  SELECT snap_dt, dt_rank\n  FROM ranked_dates\n  WHERE dt_rank IN (1, 2)\n),\nadvisor_aum AS (\n  SELECT\n    s.rep_id,\n    td.dt_rank,\n    SUM(s.aum_val) AS total_aum\n  FROM dbo.aum_snap s\n  JOIN target_dates td\n    ON s.snap_dt = td.snap_dt\n  GROUP BY s.rep_id, td.dt_rank\n),\npivoted AS (\n  SELECT\n    rep_id,\n    MAX(CASE WHEN dt_rank = 1 THEN total_aum END) AS latest_aum,\n    MAX(CASE WHEN dt_rank = 2 THEN total_aum END) AS previous_aum\n  FROM advisor_aum\n  GROUP BY rep_id\n)\nSELECT\n  r.rep_id,\n  r.rep_nm,\n  p.previous_aum,\n  p.latest_aum,\n  (p.latest_aum - p.previous_aum) AS dollar_change,\n  CASE\n    WHEN p.previous_aum IS NULL OR p.previous_aum = 0 THEN NULL\n    ELSE ((p.latest_aum - p.previous_aum) * 100.0) / p.previous_aum\n  END AS percent_change\nFROM pivoted p\nJOIN dbo.rep_master r\n  ON r.rep_id = p.rep_id\nWHERE p.previous_aum IS NOT NULL\n  AND p.latest_aum < p.previous_aum\nORDER BY dollar_change ASC, r.rep_id;"
+  },
+  {
+    "id": "accounts_above_advisor_average",
+    "question": "Show accounts whose latest AUM is above their advisor’s average account AUM, including advisor name, account id, latest AUM, advisor average, and difference.",
+    "intendedSql": "WITH latest_snap AS (\n  SELECT MAX(snap_dt) AS snap_dt\n  FROM dbo.aum_snap\n),\naccount_aum AS (\n  SELECT\n    s.rep_id,\n    s.acct_id,\n    SUM(s.aum_val) AS acct_aum\n  FROM dbo.aum_snap s\n  JOIN latest_snap ls\n    ON s.snap_dt = ls.snap_dt\n  GROUP BY s.rep_id, s.acct_id\n),\nadvisor_avg AS (\n  SELECT\n    rep_id,\n    AVG(CAST(acct_aum AS DECIMAL(18,2))) AS advisor_avg_aum\n  FROM account_aum\n  GROUP BY rep_id\n)\nSELECT\n  r.rep_id,\n  r.rep_nm,\n  aa.acct_id,\n  aa.acct_aum AS latest_aum,\n  av.advisor_avg_aum,\n  aa.acct_aum - av.advisor_avg_aum AS aum_diff\nFROM account_aum aa\nJOIN advisor_avg av\n  ON av.rep_id = aa.rep_id\nJOIN dbo.rep_master r\n  ON r.rep_id = aa.rep_id\nWHERE aa.acct_aum > av.advisor_avg_aum\nORDER BY aum_diff DESC, aa.acct_id;"
+  },
+  {
+    "id": "offices_all_advisors_have_3_accounts",
+    "question": "Find offices where every advisor has at least 3 active accounts and the office’s total latest AUM exceeds 1000000.",
+    "intendedSql": "WITH latest_snap AS (\n  SELECT MAX(snap_dt) AS snap_dt\n  FROM dbo.aum_snap\n),\nadvisor_account_counts AS (\n  SELECT\n    r.ofc_cd,\n    r.rep_id,\n    COUNT(DISTINCT a.acct_id) AS account_count,\n    SUM(s.aum_val) AS advisor_total_aum\n  FROM dbo.rep_master r\n  JOIN dbo.acct_master a\n    ON a.rep_id = r.rep_id\n  JOIN dbo.aum_snap s\n    ON s.acct_id = a.acct_id\n   AND s.rep_id = r.rep_id\n  JOIN latest_snap ls\n    ON s.snap_dt = ls.snap_dt\n  WHERE r.rep_stts_cd = 'AC'\n  GROUP BY r.ofc_cd, r.rep_id\n),\noffice_rollup AS (\n  SELECT\n    ofc_cd,\n    SUM(advisor_total_aum) AS office_total_aum,\n    MIN(account_count) AS min_accounts_per_advisor\n  FROM advisor_account_counts\n  GROUP BY ofc_cd\n)\nSELECT\n  ofc_cd,\n  office_total_aum,\n  min_accounts_per_advisor\nFROM office_rollup\nWHERE min_accounts_per_advisor >= 3\n  AND office_total_aum > 1000000\nORDER BY office_total_aum DESC, ofc_cd;"
+  }
+]
