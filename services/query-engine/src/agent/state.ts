@@ -17,6 +17,9 @@ export const AgentState = Annotation.Root({
   /** LLM-generated SQL */
   sql: Annotation<string>({ reducer: (_, b) => b, default: () => "" }),
 
+  /** SQL generation error before validation can run */
+  generationError: Annotation<string>({ reducer: (_, b) => b, default: () => "" }),
+
   /** Validation error (empty = passed) */
   validationError: Annotation<string>({ reducer: (_, b) => b, default: () => "" }),
 

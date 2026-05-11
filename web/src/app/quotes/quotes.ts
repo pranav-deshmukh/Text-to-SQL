@@ -100,6 +100,9 @@ export class QuotesComponent {
       data: response.data,
       error: response.error,
       detail: response.detail,
+      phase: response.phase,
+      displayTarget: response.displayTarget,
+      code: response.code,
       retryCount: response.retryCount,
       tokens: response.tokens,
       timestamp: new Date(),
@@ -127,6 +130,10 @@ export class QuotesComponent {
             ...message,
             agentSteps: this.advanceAgentSteps(message.agentSteps || [], event),
             sql: event.sql || message.sql,
+            error: event.generationError ? 'Unable to generate SQL for this question.' : message.error,
+            detail: event.generationError || message.detail,
+            phase: event.generationError ? 'generation' : message.phase,
+            displayTarget: event.generationError ? 'sql-box' : message.displayTarget,
             retryCount: event.retryCount ?? message.retryCount,
           }));
         },
@@ -137,6 +144,9 @@ export class QuotesComponent {
             data: response.data,
             error: response.error,
             detail: response.detail,
+            phase: response.phase,
+            displayTarget: response.displayTarget,
+            code: response.code,
             retryCount: response.retryCount,
             agentSteps: (message.agentSteps || []).map((step) =>
               step.status === 'running' ? { ...step, status: 'done' } : step,
@@ -147,13 +157,30 @@ export class QuotesComponent {
           this.updateAgentMessage(assistantId, (message) => ({
             ...message,
             error: streamError.error,
+            detail: streamError.detail,
+            phase: streamError.phase,
+            displayTarget: streamError.displayTarget,
+            code: streamError.code,
             agentSteps: (message.agentSteps || []).map((step) =>
               step.status === 'running' ? { ...step, status: 'error', detail: streamError.error } : step,
             ),
           }));
         },
       });
-    } catch {
+    } catch (error) {
+      const fallbackResponse = (error as Error & { response?: QueryResponse }).response;
+
+      if (fallbackResponse) {
+        this.updateAgentMessage(assistantId, (message) => ({
+          ...message,
+          ...this.createAssistantMessage(fallbackResponse),
+          id: message.id,
+          timestamp: message.timestamp,
+          agentSteps: this.buildFallbackAgentSteps(fallbackResponse),
+        }));
+        return;
+      }
+
       const response = await firstValueFrom(this.queryService.submitAgentQuestion(question));
       this.updateAgentMessage(assistantId, (message) => ({
         ...message,
@@ -167,11 +194,20 @@ export class QuotesComponent {
 
   private advanceAgentSteps(existingSteps: AgentStep[], event: AgentStreamNodeEvent): AgentStep[] {
     const steps = [...existingSteps];
-    const eventError = event.validationError || event.executionError;
+    const eventError = event.generationError || event.validationError || event.executionError;
+
+    if (event.node === 'error') {
+      return steps.map((step) =>
+        step.status === 'running'
+          ? { ...step, status: 'error', detail: eventError || step.detail }
+          : step,
+      );
+    }
+
     const currentIndex = steps.findIndex((step) => step.node === event.node);
     const currentStep: AgentStep = {
       node: event.node,
-      status: eventError ? 'error' : 'done',
+      status: eventError || event.status === 'error' ? 'error' : 'done',
       detail: eventError,
     };
 
@@ -184,7 +220,7 @@ export class QuotesComponent {
     const nodeOrder: string[] = ['retrieve', 'generate', 'validate', 'execute'];
     const orderIndex = nodeOrder.indexOf(event.node);
 
-    if (!eventError && orderIndex >= 0 && orderIndex < nodeOrder.length - 1) {
+    if (!eventError && event.status !== 'error' && orderIndex >= 0 && orderIndex < nodeOrder.length - 1) {
       const nextNode = nodeOrder[orderIndex + 1];
       if (!steps.some((step) => step.node === nextNode && step.status === 'running')) {
         steps.push({ node: nextNode, status: 'running' });
@@ -203,6 +239,22 @@ export class QuotesComponent {
   }
 
   private buildFallbackAgentSteps(response: QueryResponse): AgentStep[] {
+    if (response.displayTarget === 'sql-box') {
+      return [
+        { node: 'retrieve', status: 'done' },
+        { node: 'generate', status: 'error', detail: response.detail },
+      ];
+    }
+
+    if (response.phase === 'execution') {
+      return [
+        { node: 'retrieve', status: 'done' },
+        { node: 'generate', status: 'done' },
+        { node: 'validate', status: 'done' },
+        { node: 'execute', status: 'error', detail: response.detail },
+      ];
+    }
+
     const baseSteps: AgentStep[] = [
       { node: 'retrieve', status: 'done' },
       { node: 'generate', status: 'done' },
@@ -236,6 +288,9 @@ export class QuotesComponent {
           'Failed to connect to query engine',
         detail: apiError?.detail,
         sql: apiError?.sql,
+        phase: apiError?.phase,
+        displayTarget: apiError?.displayTarget,
+        code: apiError?.code,
         timestamp: new Date(),
       };
     }

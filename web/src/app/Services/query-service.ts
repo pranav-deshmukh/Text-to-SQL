@@ -8,6 +8,7 @@ import { QueryResponse } from '../Models/query-response';
 export interface AgentStreamNodeEvent {
   node: string;
   sql?: string;
+  generationError?: string;
   validationError?: string;
   executionError?: string;
   retryCount?: number;
@@ -19,7 +20,7 @@ export interface AgentStreamNodeEvent {
 export interface AgentStreamHandlers {
   onNodeEnd?: (event: AgentStreamNodeEvent) => void;
   onDone?: (response: QueryResponse) => void;
-  onError?: (error: { error: string }) => void;
+  onError?: (error: QueryResponse) => void;
 }
 
 @Injectable({
@@ -52,15 +53,18 @@ export class QueryService {
 
     if (!response.ok) {
       let errorMessage = `Agent request failed with status ${response.status}`;
+      let errorBody: QueryResponse | undefined;
 
       try {
-        const errorBody = (await response.json()) as { error?: string; detail?: string };
+        errorBody = (await response.json()) as QueryResponse;
         errorMessage = errorBody.detail || errorBody.error || errorMessage;
       } catch {
         // Ignore JSON parse errors and keep the generic message.
       }
 
-      throw new Error(errorMessage);
+      const error = new Error(errorMessage) as Error & { response?: QueryResponse };
+      error.response = errorBody;
+      throw error;
     }
 
     if (!response.body) {
@@ -102,7 +106,11 @@ export class QueryService {
           } else if (eventType === 'done') {
             handlers.onDone?.(data);
           } else if (eventType === 'error') {
-            handlers.onError?.({ error: data.error || 'Agent stream failed' });
+            handlers.onError?.({
+              ...data,
+              error: data.error || 'Agent stream failed',
+              detail: data.detail || data.error || 'Agent stream failed',
+            });
           }
 
           eventType = '';

@@ -27,6 +27,22 @@ export class QueryMessageComponent {
     return typeof row[column] === 'number';
   }
 
+  get hasSqlBoxError(): boolean {
+    return this.message.displayTarget === 'sql-box' && !!this.message.error;
+  }
+
+  get showErrorCard(): boolean {
+    return !!this.message.error && this.message.displayTarget !== 'sql-box';
+  }
+
+  get showSqlCard(): boolean {
+    return this.hasSqlBoxError || (!!this.message.sql && this.showSql);
+  }
+
+  get sqlToggleLabel(): string {
+    return this.hasSqlBoxError ? 'SQL Generation Error' : 'Generated SQL';
+  }
+
   workflowLabel(step: AgentStep): string {
     const labels: Record<string, string> = {
       retrieve: 'Retrieve schema',

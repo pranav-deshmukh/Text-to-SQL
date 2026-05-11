@@ -37,7 +37,7 @@
       <div *ngIf="message.retryCount" class="retry-note">↻ {{ message.retryCount }} retry(s) needed</div>
     </div>
 
-    <div *ngIf="message.error" class="error-card">
+    <div *ngIf="showErrorCard" class="error-card">
       <div class="error-line">
         <span>⚠</span>
         <span>{{ message.error }}</span>
@@ -48,21 +48,29 @@
       </div>
     </div>
 
-    <button *ngIf="message.sql" type="button" class="sql-toggle" (click)="toggleSql()">
+    <button *ngIf="message.sql && !hasSqlBoxError" type="button" class="sql-toggle" (click)="toggleSql()">
       <span class="toggle-icon" [class.expanded]="showSql">▶</span>
       {{ showSql ? 'Hide' : 'View' }} Generated SQL
     </button>
 
-    <div *ngIf="message.sql && showSql" class="sql-card">
-      <div class="sql-card-header">
+    <div *ngIf="showSqlCard" class="sql-card" [class.sql-card-error]="hasSqlBoxError">
+      <div class="sql-card-header" [class.sql-card-header-error]="hasSqlBoxError">
         <div class="window-dots">
           <span class="dot coral"></span>
           <span class="dot amber"></span>
           <span class="dot success"></span>
         </div>
-        <span class="sql-label">T-SQL</span>
+        <span class="sql-label">{{ hasSqlBoxError ? sqlToggleLabel : 'T-SQL' }}</span>
       </div>
-      <pre class="sql-code">{{ message.sql }}</pre>
+      <ng-container *ngIf="hasSqlBoxError; else sqlContent">
+        <div class="sql-error-body">
+          <div class="sql-error-title">{{ message.error }}</div>
+          <div *ngIf="message.detail" class="sql-error-detail">{{ message.detail }}</div>
+        </div>
+      </ng-container>
+      <ng-template #sqlContent>
+        <pre class="sql-code">{{ message.sql }}</pre>
+      </ng-template>
     </div>
 
     <div *ngIf="message.data && message.data.rowCount > 0" class="results-card">

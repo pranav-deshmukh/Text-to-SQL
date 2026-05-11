@@ -170,6 +170,10 @@
   overflow: hidden;
 }
 
+.sql-card-error {
+  border-color: rgba(232, 96, 74, 0.3);
+}
+
 .sql-card-header,
 .results-header {
   display: flex;
@@ -179,6 +183,10 @@
   padding: 8px 14px;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
+}
+
+.sql-card-header-error {
+  border-bottom-color: rgba(232, 96, 74, 0.25);
 }
 
 .window-dots {
@@ -224,6 +232,26 @@
   font-family: 'DM Mono', monospace;
   font-size: 12px;
   line-height: 1.7;
+}
+
+.sql-error-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  color: var(--coral);
+  background: rgba(232, 96, 74, 0.08);
+}
+
+.sql-error-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sql-error-detail {
+  font-size: 12px;
+  line-height: 1.6;
+  opacity: 0.9;
 }
 
 .results-meta {

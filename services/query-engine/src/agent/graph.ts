@@ -10,6 +10,11 @@ import {
 
 const MAX_RETRIES = 2;
 
+function afterGeneration(state: AgentStateType): "validate" | "error" {
+  if (state.generationError) return "error";
+  return "validate";
+}
+
 /**
  * Conditional edge after validation:
  * - valid → execute
@@ -59,7 +64,10 @@ export function buildAgentGraph() {
     .addNode("error", errorNode)
     .addEdge("__start__", "retrieve")
     .addEdge("retrieve", "generate")
-    .addEdge("generate", "validate")
+    .addConditionalEdges("generate", afterGeneration, {
+      validate: "validate",
+      error: "error",
+    })
     .addConditionalEdges("validate", afterValidation, {
       execute: "execute",
       retrieve: "retrieve",

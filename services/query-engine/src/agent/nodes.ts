@@ -3,6 +3,7 @@ import { assemblePromptFromRAG } from "../context/promptAssembler";
 import { callLLM } from "../llm/gemini";
 import { validateSQL } from "../validator/sqlValidator";
 import { executeSQL } from "../executor/sqlExecutor";
+import { buildGenerationError } from "../errors/queryError";
 import type { AgentStateType } from "./state";
 
 /**
@@ -30,18 +31,43 @@ export async function retrieveNode(state: AgentStateType): Promise<Partial<Agent
  * Passes error history so the LLM can avoid repeating mistakes.
  */
 export async function generateNode(state: AgentStateType): Promise<Partial<AgentStateType>> {
-  let errorContext = "";
-  if (state.errorHistory.length > 0) {
-    errorContext = "\n\nPREVIOUS ERRORS (do NOT repeat these mistakes):\n" +
-      state.errorHistory.map((e, i) => `${i + 1}. ${e}`).join("\n");
+  try {
+    let errorContext = "";
+    if (state.errorHistory.length > 0) {
+      errorContext = "\n\nPREVIOUS ERRORS (do NOT repeat these mistakes):\n" +
+        state.errorHistory.map((e, i) => `${i + 1}. ${e}`).join("\n");
+    }
+
+    const prompt = assemblePromptFromRAG(state.context + errorContext, state.question);
+    const sql = (await callLLM(prompt.systemPrompt, prompt.userPrompt)).trim();
+
+    if (!sql || sql.toUpperCase() === "ERROR") {
+      const generationError = buildGenerationError("The language model did not return a usable SQL query.");
+      console.warn(`🤖 [Agent:generate] FAILED: ${generationError.detail}`);
+      return {
+        sql: "",
+        generationError: generationError.detail || generationError.error,
+        status: "error",
+      };
+    }
+
+    console.log(`🤖 [Agent:generate] SQL: ${sql.substring(0, 100)}...`);
+
+    return {
+      sql,
+      generationError: "",
+      validationError: "",
+      executionError: "",
+    };
+  } catch (err: any) {
+    const generationError = buildGenerationError(err?.message || "Unable to generate SQL.");
+    console.warn(`🤖 [Agent:generate] FAILED: ${generationError.detail}`);
+    return {
+      sql: "",
+      generationError: generationError.detail || generationError.error,
+      status: "error",
+    };
   }
-
-  const prompt = assemblePromptFromRAG(state.context + errorContext, state.question);
-  const sql = await callLLM(prompt.systemPrompt, prompt.userPrompt);
-
-  console.log(`🤖 [Agent:generate] SQL: ${sql.substring(0, 100)}...`);
-
-  return { sql };
 }
 
 /**
@@ -63,7 +89,7 @@ export async function validateNode(state: AgentStateType): Promise<Partial<Agent
   }
 
   console.log(`🤖 [Agent:validate] ✅ Passed`);
-  return { validationError: "" };
+  return { validationError: "", generationError: "" };
 }
 
 /**

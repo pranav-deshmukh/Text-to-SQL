@@ -8,6 +8,13 @@ import { initVectorStore } from "./rag/vectorStore";
 import { retrieveContext, retrieveContextDetailed } from "./rag/retriever";
 import { validateSQL, initValidator } from "./validator/sqlValidator";
 import { runAgent, streamAgent } from "./agent";
+import {
+  buildExecutionError,
+  buildGenerationError,
+  buildInternalError,
+  buildRequestError,
+  buildValidationError,
+} from "./errors/queryError";
 
 dotenv.config();
 
@@ -47,20 +54,29 @@ async function bootstrap() {
     const { question } = req.body;
 
     if (!question || typeof question !== "string") {
-      return res.status(400).json({ error: "Missing 'question' in request body" });
+      return res.status(400).json(buildRequestError("Missing 'question' in request body."));
     }
 
     try {
-      // Step 2: RAG Retrieval — get relevant table schemas
-      const ragContext = await retrieveContext(question, 10);
-      console.log(`\n📝 Question: ${question}`);
-      console.log(`🔍 Retrieved tables: ${ragContext.tables.map((t) => t.tableName).join(", ")}`);
+      let ragContext;
+      let llmResponse = "";
 
-      // Step 3: Prompt Assembly (with RAG context, not full schema dump)
-      const prompt = assemblePromptFromRAG(ragContext.schemaContext, question);
+      try {
+        ragContext = await retrieveContext(question, 10);
+        console.log(`\n📝 Question: ${question}`);
+        console.log(`🔍 Retrieved tables: ${ragContext.tables.map((t) => t.tableName).join(", ")}`);
 
-      // Step 4: LLM call (single call, generates SQL)
-      const llmResponse = await callLLM(prompt.systemPrompt, prompt.userPrompt);
+        const prompt = assemblePromptFromRAG(ragContext.schemaContext, question);
+        llmResponse = (await callLLM(prompt.systemPrompt, prompt.userPrompt)).trim();
+      } catch (err: any) {
+        console.error("❌ Generation error:", err.message);
+        return res.status(502).json(buildGenerationError(err?.message || "Unable to generate SQL."));
+      }
+
+      if (!llmResponse || llmResponse.toUpperCase() === "ERROR") {
+        return res.status(422).json(buildGenerationError("The language model did not return a usable SQL query."));
+      }
+
       console.log(`🔧 SQL: ${llmResponse}`);
 
       // Step 5: SQL Validation — 4-layer pipeline
@@ -71,15 +87,17 @@ async function bootstrap() {
       const validation = await validateSQL(llmResponse, dbConnectionString);
       if (!validation.valid) {
         console.warn(`⚠️  SQL validation failed: ${validation.error}`);
-        return res.status(400).json({
-          error: "SQL validation failed",
-          detail: validation.error,
-          sql: llmResponse,
-        });
+        return res.status(400).json(buildValidationError(validation.error || "SQL validation failed.", llmResponse));
       }
 
       // Step 6: Execute SQL against MS SQL Server
-      const data = await executeSQL(llmResponse);
+      let data;
+      try {
+        data = await executeSQL(llmResponse);
+      } catch (err: any) {
+        console.error("❌ Execution error:", err.message);
+        return res.status(500).json(buildExecutionError(err?.message || "SQL execution failed.", llmResponse));
+      }
       console.log(`✅ Returned ${data.rowCount} rows in ${data.executionTimeMs}ms`);
 
       return res.json({
@@ -90,7 +108,7 @@ async function bootstrap() {
       });
     } catch (err: any) {
       console.error("❌ Error:", err.message);
-      return res.status(500).json({ error: err.message });
+      return res.status(500).json(buildInternalError(err?.message || "Unexpected server error."));
     }
   });
 
@@ -107,7 +125,7 @@ async function bootstrap() {
     const { question, topK } = req.body;
 
     if (!question || typeof question !== "string") {
-      return res.status(400).json({ error: "Missing 'question' in request body" });
+      return res.status(400).json(buildRequestError("Missing 'question' in request body."));
     }
 
     const requestedTopK = typeof topK === "number" && Number.isFinite(topK)
@@ -131,7 +149,7 @@ async function bootstrap() {
       });
     } catch (err: any) {
       console.error("🔎 [RAG Inspect] Error:", err.message);
-      return res.status(500).json({ error: err.message });
+      return res.status(500).json(buildInternalError(err?.message || "RAG inspect failed."));
     }
   });
 
@@ -144,7 +162,7 @@ async function bootstrap() {
     const { question } = req.body;
 
     if (!question || typeof question !== "string") {
-      return res.status(400).json({ error: "Missing 'question' in request body" });
+      return res.status(400).json(buildRequestError("Missing 'question' in request body."));
     }
 
     try {
@@ -160,17 +178,20 @@ async function bootstrap() {
           errorHistory: result.errorHistory,
         });
       } else {
-        return res.status(400).json({
-          error: "Agent could not generate a valid query after retries",
+        return res.status(result.phase === "generation" ? 422 : 400).json({
+          error: result.error,
+          detail: result.detail,
           sql: result.sql,
-          detail: result.error,
           retryCount: result.retryCount,
           errorHistory: result.errorHistory,
+          phase: result.phase,
+          displayTarget: result.displayTarget,
+          code: result.code,
         });
       }
     } catch (err: any) {
       console.error("🤖 [Agent] Unexpected error:", err.message);
-      return res.status(500).json({ error: err.message });
+      return res.status(500).json(buildInternalError(err?.message || "Unexpected agent error."));
     }
   });
 
@@ -183,7 +204,7 @@ async function bootstrap() {
     const { question } = req.body;
 
     if (!question || typeof question !== "string") {
-      return res.status(400).json({ error: "Missing 'question' in request body" });
+      return res.status(400).json(buildRequestError("Missing 'question' in request body."));
     }
 
     await streamAgent(question, res);

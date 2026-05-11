@@ -14,6 +14,9 @@ export interface Message {
   data?: QueryResult;
   error?: string;
   detail?: string;
+  phase?: 'request' | 'generation' | 'validation' | 'execution' | 'internal';
+  displayTarget?: 'sql-box' | 'error-box';
+  code?: string;
   tokens?: {
     prompt?: number;
     completion?: number;

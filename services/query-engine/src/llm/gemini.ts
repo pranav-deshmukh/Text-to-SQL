@@ -1,6 +1,8 @@
 import { GoogleGenAI } from '@google/genai';
 import type { Message } from './types.ts';
 
+const MAX_GENERATION_ATTEMPTS = 2;
+
 function createGeminiClient(): GoogleGenAI {
   const project = process.env.GOOGLE_CLOUD_PROJECT;
   if (project) {
@@ -23,6 +25,7 @@ function createGeminiClient(): GoogleGenAI {
 export async function callLLM(
   systemPrompt: string,
   messages: Message[] | string,
+  attempt: number = 1,
 ): Promise<string> {
   const msgArray: Message[] = typeof messages === 'string'
     ? [{ role: 'user', content: messages }]
@@ -49,13 +52,20 @@ export async function callLLM(
     });
 
     const text = response.text?.trim() ?? '';
-    return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    const normalized = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+    if ((!normalized || normalized.toUpperCase() === 'ERROR') && attempt < MAX_GENERATION_ATTEMPTS) {
+      console.log(`[LLM] Empty/ERROR response on attempt ${attempt}; retrying generation...`);
+      return callLLM(systemPrompt, messages, attempt + 1);
+    }
+
+    return normalized;
   } catch (err: any) {
     const status = err?.status ?? err?.code;
     if (status === 429) {
       console.log('[LLM] Gemini rate limited, waiting 15s...');
       await new Promise((resolve) => setTimeout(resolve, 15000));
-      return callLLM(systemPrompt, messages);
+      return callLLM(systemPrompt, messages, attempt);
     }
     throw err;
   }

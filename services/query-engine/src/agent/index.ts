@@ -1,5 +1,11 @@
 import { buildAgentGraph } from "./graph";
 import type { Response } from "express";
+import {
+  buildExecutionError,
+  buildGenerationError,
+  buildValidationError,
+} from "../errors/queryError";
+import type { QueryErrorPhase } from "../errors/queryError";
 
 const agent = buildAgentGraph();
 
@@ -14,9 +20,13 @@ export interface AgentResult {
   } | null;
   status: "success" | "error";
   error?: string;
+  detail?: string;
   retryCount: number;
   errorHistory: string[];
   retrievedTables: string[];
+  phase?: QueryErrorPhase;
+  displayTarget?: "sql-box" | "error-box";
+  code?: string;
 }
 
 /**
@@ -38,11 +48,24 @@ export async function runAgent(question: string): Promise<AgentResult> {
       executionTimeMs: finalState.executionTimeMs,
     } : null,
     status: finalState.status as "success" | "error",
-    error: finalState.validationError || finalState.executionError || undefined,
     retryCount: finalState.retryCount,
     errorHistory: finalState.errorHistory,
     retrievedTables: finalState.retrievedTables,
   };
+
+  if (finalState.status !== "success") {
+    const errorPayload = finalState.generationError
+      ? buildGenerationError(finalState.generationError)
+      : finalState.validationError
+        ? buildValidationError(finalState.validationError, finalState.sql)
+        : buildExecutionError(finalState.executionError || "The query failed during execution.", finalState.sql);
+
+    result.error = errorPayload.error;
+    result.detail = errorPayload.detail;
+    result.phase = errorPayload.phase;
+    result.displayTarget = errorPayload.displayTarget;
+    result.code = errorPayload.code;
+  }
 
   console.log(`🤖 [Agent] Done. Status: ${result.status} | Retries: ${result.retryCount}`);
   return result;
@@ -85,6 +108,7 @@ export async function streamAgent(question: string, res: Response): Promise<void
         sendEvent("node_end", {
           node: nodeName,
           sql: update.sql,
+          generationError: update.generationError,
           validationError: update.validationError,
           executionError: update.executionError,
           retrievedTables: update.retrievedTables,
@@ -107,15 +131,28 @@ export async function streamAgent(question: string, res: Response): Promise<void
         executionTimeMs: accumulated.executionTimeMs || 0,
       } : null,
       status: accumulated.status as "success" | "error",
-      error: accumulated.validationError || accumulated.executionError || undefined,
       retryCount: accumulated.retryCount || 0,
       errorHistory: accumulated.errorHistory || [],
       retrievedTables: accumulated.retrievedTables || [],
     };
 
+    if (finalResult.status !== "success") {
+      const errorPayload = accumulated.generationError
+        ? buildGenerationError(accumulated.generationError)
+        : accumulated.validationError
+          ? buildValidationError(accumulated.validationError, finalResult.sql)
+          : buildExecutionError(accumulated.executionError || "The query failed during execution.", finalResult.sql);
+
+      finalResult.error = errorPayload.error;
+      finalResult.detail = errorPayload.detail;
+      finalResult.phase = errorPayload.phase;
+      finalResult.displayTarget = errorPayload.displayTarget;
+      finalResult.code = errorPayload.code;
+    }
+
     sendEvent("done", finalResult);
   } catch (err: any) {
-    sendEvent("error", { error: err.message });
+    sendEvent("error", buildGenerationError(err?.message || "Agent stream failed before SQL could be generated."));
   } finally {
     res.end();
   }
