@@ -6,7 +6,7 @@ import { GoogleGenAI } from "@google/genai";
  * Abstract interface so we can swap providers later.
  */
 
-const COLLECTION_NAME = "schema_tables";
+const COLLECTION_NAME = "sql_context";
 const EMBEDDING_MODEL = "gemini-embedding-001";
 const VECTOR_SIZE = 3072;
 
@@ -42,6 +42,17 @@ export async function initVectorStore(): Promise<void> {
   console.log(`✅ Qdrant collection "${COLLECTION_NAME}" ready (${info.points_count} points)`);
 }
 
+function stablePointId(input: string): number {
+  let hash = 2166136261;
+
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return Math.abs(hash >>> 0);
+}
+
 /**
  * Generate embedding for a text using Gemini.
  */
@@ -57,7 +68,7 @@ async function embed(text: string): Promise<number[]> {
 export interface DocumentToStore {
   id: string;
   text: string;
-  metadata: Record<string, string>;
+  metadata: Record<string, string | number | boolean | string[] | number[] | null>;
 }
 
 /**
@@ -68,8 +79,8 @@ export async function addDocuments(docs: DocumentToStore[]): Promise<void> {
 
   // Generate embeddings for all docs
   const points = await Promise.all(
-    docs.map(async (doc, i) => ({
-      id: i + 1, // Qdrant needs numeric or UUID ids
+    docs.map(async (doc) => ({
+      id: stablePointId(doc.id),
       vector: await embed(doc.text),
       payload: {
         text: doc.text,
@@ -85,8 +96,19 @@ export async function addDocuments(docs: DocumentToStore[]): Promise<void> {
 export interface SearchResult {
   id: string;
   text: string;
-  metadata: Record<string, string>;
+  metadata: Record<string, string | number | boolean | string[] | number[] | null>;
   score: number;
+}
+
+function toSearchMetadata(
+  payload: Record<string, unknown> | null | undefined
+): Record<string, string | number | boolean | string[] | number[] | null> {
+  const entries = Object.entries(payload ?? {}).filter(([key]) => key !== "docId" && key !== "text");
+
+  return Object.fromEntries(entries) as Record<
+    string,
+    string | number | boolean | string[] | number[] | null
+  >;
 }
 
 /**
@@ -109,10 +131,7 @@ export async function searchDocuments(
   return results.map((r) => ({
     id: (r.payload?.docId as string) ?? String(r.id),
     text: (r.payload?.text as string) ?? "",
-    metadata: {
-      tableName: (r.payload?.tableName as string) ?? "",
-      businessPurpose: (r.payload?.businessPurpose as string) ?? "",
-    },
+    metadata: toSearchMetadata(r.payload as Record<string, unknown> | null | undefined),
     score: r.score,
   }));
 }
