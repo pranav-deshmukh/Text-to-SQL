@@ -30,6 +30,9 @@ RULES:
 - Always include meaningful column aliases for cryptic column names.
 - ONLY use tables and columns provided in the schema context below. Do NOT assume any tables or columns exist beyond what is shown.
 - EXCEPTION: You MAY always query INFORMATION_SCHEMA views (e.g. INFORMATION_SCHEMA.TABLES, INFORMATION_SCHEMA.COLUMNS) for questions about what tables or columns exist in the database. These are always available regardless of the schema context provided.
+- Do NOT guess or invent status code values. Only use values confirmed in CHECK_CONSTRAINTS or COLUMN_PROFILE sections provided in the context.
+- If the user says "active", find the relevant status column and its known values from the context before applying a filter. Match the filter to the correct entity: "active advisors" filters on rep_master status, "active accounts" filters on acct_master status.
+- If no valid values are available for a filter column, omit the filter rather than guessing a value.
 
 RESPONSE FORMAT:
 - Respond with ONLY the SQL query.
@@ -69,7 +72,7 @@ export function assemblePromptFromRAG(
   userQuestion: string
 ): AssembledPrompt {
   const userPrompt = `
-RELEVANT SCHEMA (retrieved tables with DDL, column definitions, and business context):
+RELEVANT DATABASE CONTEXT (retrieved tables, relationships, views, procedures, and schema metadata):
 ${retrievedContext}
 
 USER QUESTION:

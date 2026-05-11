@@ -2,9 +2,9 @@
 
 ## Overview
 
-RAG-Enhanced Controlled Pipeline for natural language to SQL conversion. Non-technical operations users ask questions in plain English, the system retrieves relevant schema context via RAG, generates SQL using a single LLM call, validates it, executes it on MS SQL Server, and returns results.
+RAG-enhanced controlled pipeline for natural language to SQL conversion. Non-technical operations users ask questions in plain English, the system retrieves relevant schema context via RAG, generates SQL using a single LLM call, validates it, executes it on MS SQL Server, and returns results.
 
-**Key Principle**: The LLM is the SQL writer, nothing more. Everything around it is deterministic Python that we control, test, and audit.
+**Key Principle**: The LLM is the SQL writer, nothing more. Everything around it is deterministic application code that we control, test, and audit.
 
 ---
 
@@ -107,20 +107,21 @@ RAG-Enhanced Controlled Pipeline for natural language to SQL conversion. Non-tec
 
 ---
 
-## Why This Architecture (Not Agent-Based)
+## Why This Architecture (Pipeline-First, Agent-Ready)
 
 | Approach | What happens |
 |---|---|
-| **Agent-driven** (Vanna 2.0 style) | LLM decides to call `SearchMemory` tool → LLM decides to call `RunSQL` tool → multiple LLM roundtrips |
-| **Our approach** ✅ | Code fetches context via RAG → assembles everything → **one LLM call** → code validates & executes |
+| **Agent-driven** | LLM decides which tools to call, in what order, across multiple roundtrips |
+| **Our primary path** ✅ | Code fetches context via RAG → assembles everything → **one LLM call** → code validates & executes |
+| **Current repo support** | Pipeline path for speed/predictability, plus an optional LangGraph retry loop for self-correction |
 
 ### Advantages for LPL:
 
-1. **One LLM call** — faster, cheaper, predictable latency (~1-2s vs 5-10s for agent loops)
+1. **One LLM call on the main path** — faster, cheaper, predictable latency
 2. **No LLM decision-making on WHAT context to fetch** — our code controls that, eliminating a failure point
 3. **Fully deterministic pipeline except for SQL generation** — everything else is our code, auditable, testable
 4. **Validation happens OUTSIDE the LLM** — the LLM can't bypass it
-5. **Compliant with financial regulations** — full audit trail, deterministic guardrails, no non-deterministic tool exploration
+5. **Compliant with financial regulations** — full audit trail, deterministic guardrails, and bounded agent behavior when agent mode is used
 
 ---
 
@@ -207,13 +208,13 @@ Respond with ONLY the SQL query. No explanation.
 
 | Component | Technology | Notes |
 |---|---|---|
-| **Chat UI** | React (or Streamlit for POC speed) | |
-| **Backend API** | FastAPI (Python) | |
-| **LLM** | Azure OpenAI (GPT-4o) | LPL likely has Azure enterprise agreement |
-| **Vector DB** | ChromaDB (POC) → Azure AI Search or pgvector (prod) | |
-| **SQL Validation** | sqlglot (Python) | Understands T-SQL dialect |
-| **Database** | MS SQL Server via pyodbc | Read-only connection |
-| **Embeddings** | Azure OpenAI text-embedding-3-small | |
+| **Chat UI** | Angular | Current repo implementation |
+| **Backend API** | Express (TypeScript) | Current repo implementation |
+| **LLM** | Gemini 2.0 Flash | SQL generation |
+| **Vector DB** | Qdrant | Dockerized with named volume |
+| **SQL Validation** | Custom TypeScript + SQL Server `PARSEONLY` | Uses real T-SQL parser behavior |
+| **Database** | MS SQL Server via `msnodesqlv8` | Shared-memory/ODBC path |
+| **Embeddings** | Gemini `text-embedding-004` | Retrieval embeddings |
 | **Auth** | LPL's existing SSO/AD integration | |
 
 ---
