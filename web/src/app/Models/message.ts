@@ -17,6 +17,12 @@ export interface Message {
   phase?: 'request' | 'generation' | 'validation' | 'execution' | 'internal';
   displayTarget?: 'sql-box' | 'error-box';
   code?: string;
+  finalError?: {
+    code: string;
+    phase: 'request' | 'generation' | 'validation' | 'execution' | 'internal';
+    message: string;
+    detail?: string;
+  } | null;
   tokens?: {
     prompt?: number;
     completion?: number;

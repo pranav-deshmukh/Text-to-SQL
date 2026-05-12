@@ -27,6 +27,12 @@ export interface AgentResult {
   phase?: QueryErrorPhase;
   displayTarget?: "sql-box" | "error-box";
   code?: string;
+  finalError?: {
+    code: string;
+    phase: QueryErrorPhase;
+    message: string;
+    detail?: string;
+  };
 }
 
 /**
@@ -66,6 +72,12 @@ export async function runAgent(question: string): Promise<AgentResult> {
     result.phase = errorPayload.phase;
     result.displayTarget = errorPayload.displayTarget;
     result.code = errorPayload.code;
+    result.finalError = {
+      code: errorPayload.code,
+      phase: errorPayload.phase,
+      message: errorPayload.error,
+      detail: errorPayload.detail,
+    };
   }
 
   console.log(`🤖 [Agent] Done. Status: ${result.status} | Retries: ${result.retryCount}`);
@@ -149,6 +161,12 @@ export async function streamAgent(question: string, res: Response): Promise<void
       finalResult.phase = errorPayload.phase;
       finalResult.displayTarget = errorPayload.displayTarget;
       finalResult.code = errorPayload.code;
+      finalResult.finalError = {
+        code: errorPayload.code,
+        phase: errorPayload.phase,
+        message: errorPayload.error,
+        detail: errorPayload.detail,
+      };
     }
 
     sendEvent("done", finalResult);

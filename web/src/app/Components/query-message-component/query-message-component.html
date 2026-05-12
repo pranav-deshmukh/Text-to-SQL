@@ -6,31 +6,58 @@
 
 <ng-template #assistantMessage>
   <div class="assistant-stack">
-    <div *ngIf="message.agentSteps?.length" class="workflow-card">
+    <div *ngIf="workflowAttempts.length" class="workflow-card">
       <div class="workflow-title">
         <span class="workflow-title-icon">⚙</span>
         <span>AGENT WORKFLOW</span>
       </div>
 
-      <div class="workflow-list">
-        <div *ngFor="let step of message.agentSteps" class="workflow-step">
-          <span class="workflow-step-icon" [class.running]="step.status === 'running'">
-            <ng-container [ngSwitch]="step.status">
-              <span *ngSwitchCase="'running'">◌</span>
-              <span *ngSwitchCase="'done'">✓</span>
-              <span *ngSwitchDefault>⚠</span>
-            </ng-container>
-          </span>
+      <div class="workflow-attempts">
+        <div *ngFor="let attempt of workflowAttempts; let attemptIndex = index" class="workflow-attempt">
+          <button type="button" class="attempt-header" (click)="toggleAttempt(attemptIndex)">
+            <span class="attempt-arrow" [class.expanded]="isAttemptExpanded(attemptIndex)">▶</span>
+            <span
+              class="workflow-step-icon"
+              [class.running]="attemptStatus(attempt) === 'running'"
+            >
+              <ng-container [ngSwitch]="attemptStatus(attempt)">
+                <span *ngSwitchCase="'running'">◌</span>
+                <span *ngSwitchCase="'done'">✓</span>
+                <span *ngSwitchDefault>⚠</span>
+              </ng-container>
+            </span>
+            <span class="attempt-label">Try {{ attemptIndex + 1 }}</span>
+          </button>
 
-          <span
-            class="workflow-step-label"
-            [class.running]="step.status === 'running'"
-            [class.error-text]="step.status === 'error'"
-          >
-            {{ workflowLabel(step) }}
-          </span>
+          <div *ngIf="isAttemptExpanded(attemptIndex)" class="workflow-list">
+            <div *ngFor="let step of attempt" class="workflow-step">
+              <span class="workflow-step-icon" [class.running]="step.status === 'running'">
+                <ng-container [ngSwitch]="step.status">
+                  <span *ngSwitchCase="'running'">◌</span>
+                  <span *ngSwitchCase="'done'">✓</span>
+                  <span *ngSwitchDefault>⚠</span>
+                </ng-container>
+              </span>
 
-          <span *ngIf="step.detail" class="workflow-step-detail">— {{ step.detail }}</span>
+              <span
+                class="workflow-step-label"
+                [class.running]="step.status === 'running'"
+                [class.error-text]="step.status === 'error'"
+              >
+                {{ workflowLabel(step) }}
+              </span>
+
+              <span *ngIf="step.detail" class="workflow-step-detail">— {{ step.detail }}</span>
+            </div>
+
+            <div *ngIf="showAttemptFinalError(attemptIndex)" class="attempt-error-card">
+              <div class="error-line">
+                <span>⚠</span>
+                <span>{{ errorCardTitle }}</span>
+              </div>
+              <div *ngIf="errorCardDetail" class="error-detail">{{ errorCardDetail }}</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -40,9 +67,9 @@
     <div *ngIf="showErrorCard" class="error-card">
       <div class="error-line">
         <span>⚠</span>
-        <span>{{ message.error }}</span>
+        <span>{{ errorCardTitle }}</span>
       </div>
-      <div *ngIf="message.detail" class="error-detail">{{ message.detail }}</div>
+      <div *ngIf="errorCardDetail" class="error-detail">{{ errorCardDetail }}</div>
       <div *ngIf="message.sql && message.sql !== 'ERROR'" class="error-sql">
         LLM output: {{ message.sql }}
       </div>
