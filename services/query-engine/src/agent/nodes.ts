@@ -16,7 +16,7 @@ export async function retrieveNode(state: AgentStateType): Promise<Partial<Agent
     ? `${state.question} (context: ${state.errorHistory[state.errorHistory.length - 1]})`
     : state.question;
 
-  const ragResult = await retrieveContext(query, 10);
+  const ragResult = await retrieveContext(query);
 
   console.log(`🤖 [Agent:retrieve] Tables: ${ragResult.tables.map(t => t.tableName).join(", ")}`);
 

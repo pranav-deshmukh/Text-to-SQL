@@ -4,7 +4,14 @@ import { searchDocuments, SearchResult } from "./vectorStore";
  * RAG Retriever — Step 2 in architecture.
  * Standalone tool: input = user question, output = relevant schema context.
  * Knows nothing about prompt assembly or SQL generation.
+ *
+ * Tuning via environment variables (set in .env):
+ *   RAG_TOP_K           — number of chunks to fetch from Qdrant (default: 15)
+ *   RAG_SCORE_THRESHOLD — minimum cosine similarity to include a chunk (default: 0.45)
  */
+
+const DEFAULT_TOP_K = parseInt(process.env.RAG_TOP_K ?? "15", 10);
+const DEFAULT_SCORE_THRESHOLD = parseFloat(process.env.RAG_SCORE_THRESHOLD ?? "0.45");
 
 export interface RetrievedContext {
   /** Combined schema context string ready for prompt injection */
@@ -43,9 +50,11 @@ function extractTableNames(metadata: SearchResult["metadata"]): string[] {
  */
 export async function retrieveContextDetailed(
   question: string,
-  topK: number = 5
+  topK: number = DEFAULT_TOP_K,
+  scoreThreshold: number = DEFAULT_SCORE_THRESHOLD
 ): Promise<RetrievedContextDetailed> {
-  const results: SearchResult[] = await searchDocuments(question, topK);
+  const raw: SearchResult[] = await searchDocuments(question, topK);
+  const results = raw.filter((r) => r.score >= scoreThreshold);
 
   const groupedResults = new Map<string, SearchResult[]>();
   for (const result of results) {
@@ -96,7 +105,7 @@ export async function retrieveContextDetailed(
 
 export async function retrieveContext(
   question: string,
-  topK: number = 5
+  topK: number = DEFAULT_TOP_K
 ): Promise<RetrievedContext> {
   const { schemaContext, tables } = await retrieveContextDetailed(question, topK);
   return { schemaContext, tables };
