@@ -170,15 +170,18 @@ async function bootstrap() {
 
       if (result.status === "success") {
         return res.json({
+          status: result.status,
           question: result.question,
           sql: result.sql,
           data: result.data,
           retrievedTables: result.retrievedTables,
           retryCount: result.retryCount,
           errorHistory: result.errorHistory,
+          finalError: null,
         });
       } else {
         return res.status(result.phase === "generation" ? 422 : 400).json({
+          status: result.status,
           error: result.error,
           detail: result.detail,
           sql: result.sql,
@@ -187,6 +190,7 @@ async function bootstrap() {
           phase: result.phase,
           displayTarget: result.displayTarget,
           code: result.code,
+          finalError: result.finalError,
         });
       }
     } catch (err: any) {

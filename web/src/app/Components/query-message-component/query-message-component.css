@@ -59,6 +59,67 @@
   gap: 6px;
 }
 
+.workflow-attempts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.workflow-attempt {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+
+.attempt-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.attempt-arrow {
+  width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.attempt-arrow.expanded {
+  transform: rotate(90deg);
+}
+
+.attempt-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workflow-attempt .workflow-list {
+  padding: 0 10px 10px 28px;
+}
+
+.attempt-error-card {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(232, 96, 74, 0.1);
+  border: 1px solid rgba(232, 96, 74, 0.28);
+  color: var(--coral);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .workflow-step {
   display: flex;
   align-items: center;

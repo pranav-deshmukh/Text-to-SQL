@@ -103,6 +103,7 @@ export class QuotesComponent {
       phase: response.phase,
       displayTarget: response.displayTarget,
       code: response.code,
+      finalError: response.finalError,
       retryCount: response.retryCount,
       tokens: response.tokens,
       timestamp: new Date(),
@@ -134,6 +135,7 @@ export class QuotesComponent {
             detail: event.generationError || message.detail,
             phase: event.generationError ? 'generation' : message.phase,
             displayTarget: event.generationError ? 'error-box' : message.displayTarget,
+            finalError: message.finalError,
             retryCount: event.retryCount ?? message.retryCount,
           }));
         },
@@ -147,6 +149,7 @@ export class QuotesComponent {
             phase: response.phase,
             displayTarget: response.displayTarget,
             code: response.code,
+            finalError: response.finalError,
             retryCount: response.retryCount,
             agentSteps: (message.agentSteps || []).map((step) =>
               step.status === 'running' ? { ...step, status: 'done' } : step,
@@ -161,6 +164,7 @@ export class QuotesComponent {
             phase: streamError.phase,
             displayTarget: streamError.displayTarget,
             code: streamError.code,
+            finalError: streamError.finalError,
             agentSteps: (message.agentSteps || []).map((step) =>
               step.status === 'running' ? { ...step, status: 'error', detail: streamError.error } : step,
             ),
@@ -204,7 +208,23 @@ export class QuotesComponent {
       );
     }
 
-    const currentIndex = steps.findIndex((step) => step.node === event.node);
+    // Find the last step matching this node (prefer 'running' state, else last occurrence)
+    let currentIndex = -1;
+    for (let i = steps.length - 1; i >= 0; i--) {
+      if (steps[i].node === event.node && steps[i].status === 'running') {
+        currentIndex = i;
+        break;
+      }
+    }
+    if (currentIndex === -1) {
+      for (let i = steps.length - 1; i >= 0; i--) {
+        if (steps[i].node === event.node) {
+          currentIndex = i;
+          break;
+        }
+      }
+    }
+
     const currentStep: AgentStep = {
       node: event.node,
       status: eventError || event.status === 'error' ? 'error' : 'done',
@@ -291,6 +311,7 @@ export class QuotesComponent {
         phase: apiError?.phase,
         displayTarget: apiError?.displayTarget,
         code: apiError?.code,
+        finalError: apiError?.finalError,
         timestamp: new Date(),
       };
     }
