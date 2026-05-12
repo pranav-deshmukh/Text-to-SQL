@@ -10,15 +10,65 @@ export interface QueryErrorPayload {
   code: string;
 }
 
+function extractStructuredMessage(detail: string): string {
+  const trimmed = detail.trim();
+
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  const tryParseMessage = (input: string): string | undefined => {
+    try {
+      const parsed = JSON.parse(input) as { error?: { message?: string }; message?: string };
+
+      if (typeof parsed.error?.message === "string") {
+        return parsed.error.message;
+      }
+
+      if (typeof parsed.message === "string") {
+        return parsed.message;
+      }
+    } catch {
+      return undefined;
+    }
+
+    return undefined;
+  };
+
+  const parsedMessage = tryParseMessage(trimmed);
+  if (parsedMessage) {
+    return parsedMessage;
+  }
+
+  const jsonStart = trimmed.indexOf("{");
+  if (jsonStart >= 0) {
+    const embeddedJsonMessage = tryParseMessage(trimmed.slice(jsonStart));
+    if (embeddedJsonMessage) {
+      return embeddedJsonMessage;
+    }
+  }
+
+  const regexMatch = trimmed.match(/"message"\s*:\s*"([^"]+)"/i);
+  if (regexMatch?.[1]) {
+    return regexMatch[1];
+  }
+
+  return trimmed;
+}
+
 function cleanDetail(detail: string): string {
-  return detail.replace(/\s+/g, " ").trim();
+  return extractStructuredMessage(detail).replace(/\s+/g, " ").trim();
 }
 
 function detectGenerationCode(detail: string): string {
-  const normalized = detail.toLowerCase();
+  const normalized = cleanDetail(detail).toLowerCase();
 
   if (normalized.includes("api key") || normalized.includes("google_cloud_project")) {
     return "LLM_AUTH";
+  }
+
+  if ((normalized.includes("404") && normalized.includes("model")) || normalized.includes("not found for api version") || normalized.includes("is not supported for generatecontent")) {
+    return "LLM_MODEL_NOT_FOUND";
   }
 
   if (normalized.includes("429") || normalized.includes("rate")) {
@@ -70,7 +120,7 @@ export function buildGenerationError(detail: string, sql?: string): QueryErrorPa
     detail: cleanDetail(detail),
     sql,
     phase: "generation",
-    displayTarget: "sql-box",
+    displayTarget: "error-box",
     code: detectGenerationCode(detail),
   };
 }

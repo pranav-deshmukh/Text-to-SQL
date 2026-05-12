@@ -32,6 +32,10 @@ export class QueryMessageComponent {
   }
 
   get showErrorCard(): boolean {
+    if (this.message.phase === 'generation' && !!this.message.agentSteps?.length) {
+      return false;
+    }
+
     return !!this.message.error && this.message.displayTarget !== 'sql-box';
   }
 

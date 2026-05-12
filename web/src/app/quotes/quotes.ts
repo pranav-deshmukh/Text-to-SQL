@@ -30,7 +30,7 @@ export class QuotesComponent {
 
   input = '';
   loading = false;
-  mode: 'pipeline' | 'agent' = 'pipeline';
+  mode: 'pipeline' | 'agent' = 'agent';
   messages: Message[] = [];
 
   constructor(
@@ -42,7 +42,7 @@ export class QuotesComponent {
     this.input = suggestion;
   }
 
-  setMode(mode: 'pipeline' | 'agent'): void {
+  setMode(mode: 'agent' | 'pipeline'): void {
     if (mode === 'agent' && !this.agentModeAvailable) {
       return;
     }
@@ -133,7 +133,7 @@ export class QuotesComponent {
             error: event.generationError ? 'Unable to generate SQL for this question.' : message.error,
             detail: event.generationError || message.detail,
             phase: event.generationError ? 'generation' : message.phase,
-            displayTarget: event.generationError ? 'sql-box' : message.displayTarget,
+            displayTarget: event.generationError ? 'error-box' : message.displayTarget,
             retryCount: event.retryCount ?? message.retryCount,
           }));
         },
@@ -239,7 +239,7 @@ export class QuotesComponent {
   }
 
   private buildFallbackAgentSteps(response: QueryResponse): AgentStep[] {
-    if (response.displayTarget === 'sql-box') {
+    if (response.phase === 'generation') {
       return [
         { node: 'retrieve', status: 'done' },
         { node: 'generate', status: 'error', detail: response.detail },
