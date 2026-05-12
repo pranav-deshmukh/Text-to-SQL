@@ -32,6 +32,7 @@ export interface AgentResult {
 /**
  * Run the agent graph end-to-end for a given question.
  * The agent will self-correct on validation/execution errors (max 2 retries).
+ * 
  */
 export async function runAgent(question: string): Promise<AgentResult> {
   console.log(`\n🤖 [Agent] Starting for: "${question}"`);
