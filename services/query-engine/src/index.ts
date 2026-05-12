@@ -62,7 +62,7 @@ async function bootstrap() {
       let llmResponse = "";
 
       try {
-        ragContext = await retrieveContext(question, 10);
+        ragContext = await retrieveContext(question);
         console.log(`\n📝 Question: ${question}`);
         console.log(`🔍 Retrieved tables: ${ragContext.tables.map((t) => t.tableName).join(", ")}`);
 
