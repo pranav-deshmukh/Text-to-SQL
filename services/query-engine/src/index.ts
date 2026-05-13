@@ -2,19 +2,12 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { assemblePromptFromRAG } from "./context/promptAssembler";
-import { callLLM } from "./llm/gemini";
-import { initSqlExecutor, executeSQL } from "./executor/sqlExecutor";
+import { initSqlExecutor } from "./executor/sqlExecutor";
 import { initVectorStore } from "./rag/vectorStore";
-import { retrieveContext, retrieveContextDetailed } from "./rag/retriever";
-import { validateSQL, initValidator } from "./validator/sqlValidator";
+import { retrieveContextDetailed } from "./rag/retriever";
+import { initValidator } from "./validator/sqlValidator";
 import { runAgent, streamAgent } from "./agent";
-import {
-  buildExecutionError,
-  buildGenerationError,
-  buildInternalError,
-  buildRequestError,
-  buildValidationError,
-} from "./errors/queryError";
+import { buildInternalError, buildRequestError } from "./errors/queryError";
 
 dotenv.config();
 
@@ -22,95 +15,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Stored at module scope so the validator can reuse the same connection string
-// without opening a separate connection.
-let dbConnectionString = "";
-
-
-
 async function bootstrap() {
-
-  // Connect to MS SQL Server (via shared memory / named pipes)
   const connStr = process.env.DB_CONNECTION_STRING || "";
-  dbConnectionString = connStr;
-  await initSqlExecutor({
-    connectionString: connStr,
-  });
 
-  // Load allowed-tables whitelist dynamically from INFORMATION_SCHEMA
+  await initSqlExecutor({ connectionString: connStr });
   await initValidator(connStr);
-
-  // Initialize ChromaDB vector store (RAG)
   await initVectorStore();
 
   // --- Routes ---
-
-  /**
-   * POST /query
-   * Body: { question: string }
-   * Returns: { question, sql, data, tokens, retrievedTables }
-   */
-  app.post("/query", async (req, res) => {
-    const { question } = req.body;
-
-    if (!question || typeof question !== "string") {
-      return res.status(400).json(buildRequestError("Missing 'question' in request body."));
-    }
-
-    try {
-      let ragContext;
-      let llmResponse = "";
-
-      try {
-        ragContext = await retrieveContext(question);
-        console.log(`\n📝 Question: ${question}`);
-        console.log(`🔍 Retrieved tables: ${ragContext.tables.map((t) => t.tableName).join(", ")}`);
-
-        const prompt = assemblePromptFromRAG(ragContext.schemaContext, question);
-        llmResponse = (await callLLM(prompt.systemPrompt, prompt.userPrompt)).trim();
-      } catch (err: any) {
-        console.error("❌ Generation error:", err.message);
-        return res.status(502).json(buildGenerationError(err?.message || "Unable to generate SQL."));
-      }
-
-      if (!llmResponse || llmResponse.toUpperCase() === "ERROR") {
-        return res.status(422).json(buildGenerationError("The language model did not return a usable SQL query."));
-      }
-
-      console.log(`🔧 SQL: ${llmResponse}`);
-
-      // Step 5: SQL Validation — 4-layer pipeline
-      // Layer 1: sanitization (JSON guard, SELECT-only, block DML/DDL keywords)
-      // Layer 2: SET PARSEONLY ON — SQL Server parses but never executes (dialect-accurate)
-      // Layer 3: schema whitelist — all referenced tables must exist in ALLOWED_TABLES
-      // Layer 4: column-level checks — not yet implemented
-      const validation = await validateSQL(llmResponse, dbConnectionString);
-      if (!validation.valid) {
-        console.warn(`⚠️  SQL validation failed: ${validation.error}`);
-        return res.status(400).json(buildValidationError(validation.error || "SQL validation failed.", llmResponse));
-      }
-
-      // Step 6: Execute SQL against MS SQL Server
-      let data;
-      try {
-        data = await executeSQL(llmResponse);
-      } catch (err: any) {
-        console.error("❌ Execution error:", err.message);
-        return res.status(500).json(buildExecutionError(err?.message || "SQL execution failed.", llmResponse));
-      }
-      console.log(`✅ Returned ${data.rowCount} rows in ${data.executionTimeMs}ms`);
-
-      return res.json({
-        question,
-        sql: llmResponse,
-        data,
-        retrievedTables: ragContext.tables,
-      });
-    } catch (err: any) {
-      console.error("❌ Error:", err.message);
-      return res.status(500).json(buildInternalError(err?.message || "Unexpected server error."));
-    }
-  });
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: "query-engine" });
@@ -120,6 +32,7 @@ async function bootstrap() {
    * POST /rag-inspect
    * Body: { question: string, topK?: number }
    * Returns the raw RAG matches plus the assembled context that will be sent to the LLM.
+   * Useful for debugging retrieval quality without triggering SQL generation.
    */
   app.post("/rag-inspect", async (req, res) => {
     const { question, topK } = req.body;
@@ -128,9 +41,10 @@ async function bootstrap() {
       return res.status(400).json(buildRequestError("Missing 'question' in request body."));
     }
 
-    const requestedTopK = typeof topK === "number" && Number.isFinite(topK)
-      ? Math.max(1, Math.min(Math.floor(topK), 25))
-      : 10;
+    const requestedTopK =
+      typeof topK === "number" && Number.isFinite(topK)
+        ? Math.max(1, Math.min(Math.floor(topK), 25))
+        : undefined; // undefined = use RAG_TOP_K env default
 
     try {
       const ragContext = await retrieveContextDetailed(question, requestedTopK);
@@ -154,11 +68,11 @@ async function bootstrap() {
   });
 
   /**
-   * POST /agent-query  (Phase 2 — LangGraph agent with self-correction)
+   * POST /query
    * Body: { question: string }
-   * The agent retries up to 2 times on validation/execution errors.
+   * Runs the LangGraph agent with self-correction (up to 2 retries on validation/execution errors).
    */
-  app.post("/agent-query", async (req, res) => {
+  app.post("/query", async (req, res) => {
     const { question } = req.body;
 
     if (!question || typeof question !== "string") {
@@ -200,11 +114,11 @@ async function bootstrap() {
   });
 
   /**
-   * POST /agent-query/stream  (Phase 2 — SSE streaming)
+   * POST /query/stream
    * Body: { question: string }
-   * Returns Server-Sent Events with real-time node updates.
+   * Returns Server-Sent Events with real-time node-by-node updates.
    */
-  app.post("/agent-query/stream", async (req, res) => {
+  app.post("/query/stream", async (req, res) => {
     const { question } = req.body;
 
     if (!question || typeof question !== "string") {
