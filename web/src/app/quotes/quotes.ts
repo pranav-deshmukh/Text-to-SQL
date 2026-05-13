@@ -107,17 +107,24 @@ export class QuotesComponent {
     try {
       await this.queryService.streamAgentQuestion(question, {
         onNodeEnd: (event) => {
-          this.updateAgentMessage(assistantId, (message) => ({
-            ...message,
-            agentSteps: this.advanceAgentSteps(message.agentSteps || [], event),
-            sql: event.sql || message.sql,
-            error: event.generationError ? 'Unable to generate SQL for this question.' : message.error,
-            detail: event.generationError || message.detail,
-            phase: event.generationError ? 'generation' : message.phase,
-            displayTarget: event.generationError ? 'error-box' : message.displayTarget,
-            finalError: message.finalError,
-            retryCount: event.retryCount ?? message.retryCount,
-          }));
+          this.updateAgentMessage(assistantId, (message) => {
+            const isRetrying =
+              (!!event.generationError || !!event.validationError || !!event.executionError) &&
+              (event.retryCount ?? 0) < 2;
+
+            return {
+              ...message,
+              agentSteps: this.advanceAgentSteps(message.agentSteps || [], event),
+              sql: event.sql || message.sql,
+              // Only surface the error on UI if this is the final failure (not mid-retry)
+              error: !isRetrying && event.generationError ? 'Unable to generate SQL for this question.' : isRetrying ? undefined : message.error,
+              detail: !isRetrying && event.generationError ? event.generationError : isRetrying ? undefined : message.detail,
+              phase: !isRetrying && event.generationError ? 'generation' : isRetrying ? undefined : message.phase,
+              displayTarget: !isRetrying && event.generationError ? 'error-box' : isRetrying ? undefined : message.displayTarget,
+              finalError: message.finalError,
+              retryCount: event.retryCount ?? message.retryCount,
+            };
+          });
         },
         onDone: (response) => {
           this.updateAgentMessage(assistantId, (message) => ({
@@ -227,10 +234,17 @@ export class QuotesComponent {
       }
     }
 
+    // Generation retry → re-retrieve with error context, starts a new Try block
+    if (event.generationError && (event.retryCount ?? 0) < 2) {
+      steps.push({ node: 'retrieve', status: 'running', detail: 'Retrying...' });
+    }
+
+    // Validation retry → re-retrieve with error context, starts a new Try block
     if (event.validationError && (event.retryCount ?? 0) < 2) {
       steps.push({ node: 'retrieve', status: 'running', detail: 'Retrying...' });
     }
 
+    // Execution retry → skip re-retrieve, go straight to generate with error context
     if (event.executionError && (event.retryCount ?? 0) < 2) {
       steps.push({ node: 'generate', status: 'running', detail: 'Retrying...' });
     }

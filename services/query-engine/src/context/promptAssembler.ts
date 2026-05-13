@@ -33,6 +33,7 @@ RULES:
 - Do NOT guess or invent status code values. Only use values confirmed in CHECK_CONSTRAINTS or COLUMN_PROFILE sections provided in the context.
 - If the user says "active", find the relevant status column and its known values from the context before applying a filter. Match the filter to the correct entity: "active advisors" filters on rep_master status, "active accounts" filters on acct_master status.
 - If no valid values are available for a filter column, omit the filter rather than guessing a value.
+- When stored procedures appear in the context, do NOT call them with EXEC. Instead, use their internal SELECT logic as a reference pattern and write your own SELECT statement that mirrors their approach.
 
 RESPONSE FORMAT:
 - Respond with ONLY the SQL query.
