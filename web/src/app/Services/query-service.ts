@@ -36,14 +36,9 @@ export class QueryService {
     return this.http.post<QueryResponse>(`${this.apiUrl}/query`, payload);
   }
 
-  submitAgentQuestion(question: string): Observable<QueryResponse> {
-    const payload: QueryRequest = { question };
-    return this.http.post<QueryResponse>(`${this.apiUrl}/agent-query`, payload);
-  }
-
   async streamAgentQuestion(question: string, handlers: AgentStreamHandlers): Promise<void> {
     const payload: QueryRequest = { question };
-    const response = await fetch(`${this.apiUrl}/agent-query/stream`, {
+    const response = await fetch(`${this.apiUrl}/query/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

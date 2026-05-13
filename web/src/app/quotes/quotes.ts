@@ -19,8 +19,6 @@ import { AgentStreamNodeEvent, QueryService } from '../Services/query-service';
 export class QuotesComponent {
   @ViewChild('messagesEnd') private messagesEnd?: ElementRef<HTMLDivElement>;
 
-  readonly agentModeAvailable = true;
-
   readonly suggestions = [
     'Show total AUM by advisor',
     'Show total transaction amount by advisor',
@@ -30,7 +28,6 @@ export class QuotesComponent {
 
   input = '';
   loading = false;
-  mode: 'pipeline' | 'agent' = 'agent';
   messages: Message[] = [];
 
   constructor(
@@ -40,14 +37,6 @@ export class QuotesComponent {
 
   applySuggestion(suggestion: string): void {
     this.input = suggestion;
-  }
-
-  setMode(mode: 'agent' | 'pipeline'): void {
-    if (mode === 'agent' && !this.agentModeAvailable) {
-      return;
-    }
-
-    this.mode = mode;
   }
 
   trackByMessageId(_index: number, message: Message): string {
@@ -74,22 +63,13 @@ export class QuotesComponent {
     this.scrollToBottomSoon();
 
     try {
-      if (this.mode === 'agent') {
-        await this.submitAgentQuery(question);
-      } else {
-        const response = await firstValueFrom(this.queryService.submitQuestion(question));
-        this.messages = [...this.messages, this.createAssistantMessage(response)];
-      }
+      await this.submitAgentQuery(question);
     } catch (error) {
       this.messages = [...this.messages, this.createErrorMessage(error)];
     } finally {
       this.loading = false;
       this.scrollToBottomSoon();
     }
-  }
-
-  get loadingLabel(): string {
-    return this.mode === 'agent' ? 'Running agent workflow...' : 'Generating SQL query...';
   }
 
   private createAssistantMessage(response: QueryResponse): Message {
@@ -185,7 +165,7 @@ export class QuotesComponent {
         return;
       }
 
-      const response = await firstValueFrom(this.queryService.submitAgentQuestion(question));
+      const response = await firstValueFrom(this.queryService.submitQuestion(question));
       this.updateAgentMessage(assistantId, (message) => ({
         ...message,
         ...this.createAssistantMessage(response),
