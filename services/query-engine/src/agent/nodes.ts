@@ -47,6 +47,8 @@ export async function generateNode(state: AgentStateType): Promise<Partial<Agent
       return {
         sql: "",
         generationError: generationError.detail || generationError.error,
+        errorHistory: [`Generation failed: LLM returned no usable SQL`],
+        retryCount: state.retryCount + 1,
         status: "error",
       };
     }
@@ -65,6 +67,8 @@ export async function generateNode(state: AgentStateType): Promise<Partial<Agent
     return {
       sql: "",
       generationError: generationError.detail || generationError.error,
+      errorHistory: [`Generation failed: ${err?.message || "Unable to generate SQL"}`],
+      retryCount: state.retryCount + 1,
       status: "error",
     };
   }

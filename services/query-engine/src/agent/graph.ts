@@ -10,9 +10,10 @@ import {
 
 const MAX_RETRIES = 2;
 
-function afterGeneration(state: AgentStateType): "validate" | "error" {
-  if (state.generationError) return "error";
-  return "validate";
+function afterGeneration(state: AgentStateType): "validate" | "retrieve" | "error" {
+  if (!state.generationError) return "validate";
+  if (state.retryCount < MAX_RETRIES) return "retrieve"; // retry with error context
+  return "error";
 }
 
 /**
@@ -66,6 +67,7 @@ export function buildAgentGraph() {
     .addEdge("retrieve", "generate")
     .addConditionalEdges("generate", afterGeneration, {
       validate: "validate",
+      retrieve: "retrieve",
       error: "error",
     })
     .addConditionalEdges("validate", afterValidation, {
