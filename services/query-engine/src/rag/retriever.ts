@@ -1,4 +1,4 @@
-import { searchDocuments, SearchResult } from "./vectorStore";
+import { searchDocuments, getDocumentById, SearchResult } from "./vectorStore";
 
 /**
  * RAG Retriever — Step 2 in architecture.
@@ -48,13 +48,57 @@ function extractTableNames(metadata: SearchResult["metadata"]): string[] {
  * Given a user question, retrieve the top-K most relevant table schemas.
  * Returns a formatted context string ready for the prompt assembler.
  */
+const BACKFILL_SCORE_THRESHOLD = 0.60;
+const MAX_BACKFILL = 5;
+
+/**
+ * If RAG retrieved a profile/relationship for a table but NOT the table definition itself,
+ * fetch the table chunk by ID. Ensures the LLM always sees full column list + relationships
+ * for any table referenced in retrieved context.
+ *
+ * Only backfills from high-scoring chunks (>0.60) and caps at 5 to prevent prompt bloat.
+ * Uses O(1) point lookups — negligible latency even with 1000s of tables.
+ */
+async function backfillMissingTableChunks(results: SearchResult[]): Promise<SearchResult[]> {
+  const referencedTables = new Set<string>();
+  for (const result of results) {
+    if (result.score >= BACKFILL_SCORE_THRESHOLD) {
+      const tables = extractTableNames(result.metadata);
+      tables.forEach(t => referencedTables.add(t));
+    }
+  }
+
+  const tablesWithDefinition = new Set<string>();
+  for (const result of results) {
+    if (result.metadata.objectType === "table" && result.metadata.tableName) {
+      tablesWithDefinition.add(result.metadata.tableName as string);
+    }
+  }
+
+  const missingTables = [...referencedTables].filter(t => !tablesWithDefinition.has(t));
+  const backfilled: SearchResult[] = [];
+
+  for (const tableName of missingTables.slice(0, MAX_BACKFILL)) {
+    const doc = await getDocumentById(`table:${tableName}`);
+    if (doc) {
+      console.log(`[Retriever] ⬆️ Backfilled table definition: ${tableName}`);
+      backfilled.push(doc);
+    }
+  }
+
+  return [...results, ...backfilled];
+}
+
 export async function retrieveContextDetailed(
   question: string,
   topK: number = DEFAULT_TOP_K,
   scoreThreshold: number = DEFAULT_SCORE_THRESHOLD
 ): Promise<RetrievedContextDetailed> {
   const raw: SearchResult[] = await searchDocuments(question, topK);
-  const results = raw.filter((r) => r.score >= scoreThreshold);
+  let results = raw.filter((r) => r.score >= scoreThreshold);
+
+  // Backfill: if we got a profile/relationship for a table but not its definition, fetch it
+  results = await backfillMissingTableChunks(results);
 
   const groupedResults = new Map<string, SearchResult[]>();
   for (const result of results) {

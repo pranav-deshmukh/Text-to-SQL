@@ -137,6 +137,38 @@ export async function searchDocuments(
 }
 
 /**
+ * Retrieve a single document by its logical doc ID from Qdrant.
+ * Uses the same stablePointId hash as addDocuments.
+ * O(1) lookup — used to backfill table definitions when only profiles were retrieved.
+ */
+export async function getDocumentById(docId: string): Promise<SearchResult | null> {
+  if (!qdrant) throw new Error("Vector store not initialized");
+
+  try {
+    const pointId = stablePointId(docId);
+    const response = await qdrant.retrieve(COLLECTION_NAME, {
+      ids: [pointId],
+      with_payload: true,
+    });
+
+    if (response.length === 0) return null;
+
+    const point = response[0];
+    const payload = point.payload as Record<string, unknown> | null | undefined;
+
+    return {
+      id: docId,
+      score: 1.0,
+      metadata: toSearchMetadata(payload),
+      text: (payload?.text as string) || "",
+    };
+  } catch (err: any) {
+    console.warn(`[VectorStore] getDocumentById failed for "${docId}": ${err.message}`);
+    return null;
+  }
+}
+
+/**
  * Get document count.
  */
 export async function getDocumentCount(): Promise<number> {
