@@ -85,9 +85,16 @@ export class QuotesComponent {
       code: response.code,
       finalError: response.finalError,
       retryCount: response.retryCount,
+      maxRetries: response.maxRetries,
+      maxAttempts: response.maxAttempts,
       tokens: response.tokens,
       timestamp: new Date(),
     };
+  }
+
+  private canRetry(retryCount?: number, maxAttempts?: number, maxRetries?: number): boolean {
+    const totalAttempts = maxAttempts ?? ((maxRetries ?? 0) + 1);
+    return (retryCount ?? 0) < totalAttempts;
   }
 
   private async submitAgentQuery(question: string): Promise<void> {
@@ -110,7 +117,7 @@ export class QuotesComponent {
           this.updateAgentMessage(assistantId, (message) => {
             const isRetrying =
               (!!event.generationError || !!event.validationError || !!event.executionError) &&
-              (event.retryCount ?? 0) < 2;
+              this.canRetry(event.retryCount, event.maxAttempts, event.maxRetries);
 
             return {
               ...message,
@@ -123,6 +130,8 @@ export class QuotesComponent {
               displayTarget: !isRetrying && event.generationError ? 'error-box' : isRetrying ? undefined : message.displayTarget,
               finalError: message.finalError,
               retryCount: event.retryCount ?? message.retryCount,
+              maxRetries: event.maxRetries ?? message.maxRetries,
+              maxAttempts: event.maxAttempts ?? message.maxAttempts,
             };
           });
         },
@@ -138,6 +147,8 @@ export class QuotesComponent {
             code: response.code,
             finalError: response.finalError,
             retryCount: response.retryCount,
+            maxRetries: response.maxRetries,
+            maxAttempts: response.maxAttempts,
             agentSteps: (message.agentSteps || []).map((step) =>
               step.status === 'running' ? { ...step, status: 'done' } : step,
             ),
@@ -152,6 +163,9 @@ export class QuotesComponent {
             displayTarget: streamError.displayTarget,
             code: streamError.code,
             finalError: streamError.finalError,
+            retryCount: streamError.retryCount ?? message.retryCount,
+            maxRetries: streamError.maxRetries ?? message.maxRetries,
+            maxAttempts: streamError.maxAttempts ?? message.maxAttempts,
             agentSteps: (message.agentSteps || []).map((step) =>
               step.status === 'running' ? { ...step, status: 'error', detail: streamError.error } : step,
             ),
@@ -235,17 +249,17 @@ export class QuotesComponent {
     }
 
     // Generation retry → re-retrieve with error context, starts a new Try block
-    if (event.generationError && (event.retryCount ?? 0) < 2) {
+    if (event.generationError && this.canRetry(event.retryCount, event.maxAttempts, event.maxRetries)) {
       steps.push({ node: 'retrieve', status: 'running', detail: 'Retrying...' });
     }
 
     // Validation retry → re-retrieve with error context, starts a new Try block
-    if (event.validationError && (event.retryCount ?? 0) < 2) {
+    if (event.validationError && this.canRetry(event.retryCount, event.maxAttempts, event.maxRetries)) {
       steps.push({ node: 'retrieve', status: 'running', detail: 'Retrying...' });
     }
 
     // Execution retry → skip re-retrieve, go straight to generate with error context
-    if (event.executionError && (event.retryCount ?? 0) < 2) {
+    if (event.executionError && this.canRetry(event.retryCount, event.maxAttempts, event.maxRetries)) {
       steps.push({ node: 'generate', status: 'running', detail: 'Retrying...' });
     }
 
@@ -306,6 +320,9 @@ export class QuotesComponent {
         displayTarget: apiError?.displayTarget,
         code: apiError?.code,
         finalError: apiError?.finalError,
+        retryCount: apiError?.retryCount,
+        maxRetries: apiError?.maxRetries,
+        maxAttempts: apiError?.maxAttempts,
         timestamp: new Date(),
       };
     }

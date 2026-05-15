@@ -17,6 +17,8 @@ export interface QueryResponse {
     detail?: string;
   } | null;
   retryCount?: number;
+  maxRetries?: number;
+  maxAttempts?: number;
   tokens?: {
     prompt?: number;
     completion?: number;

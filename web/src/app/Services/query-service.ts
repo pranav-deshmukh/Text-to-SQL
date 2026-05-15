@@ -12,6 +12,8 @@ export interface AgentStreamNodeEvent {
   validationError?: string;
   executionError?: string;
   retryCount?: number;
+  maxRetries?: number;
+  maxAttempts?: number;
   status?: string;
   rowCount?: number;
   executionTimeMs?: number;
