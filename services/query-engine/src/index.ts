@@ -8,6 +8,7 @@ import { retrieveContextDetailed } from "./rag/retriever";
 import { initValidator } from "./validator/sqlValidator";
 import { runAgent, streamAgent } from "./agent";
 import { buildInternalError, buildRequestError } from "./errors/queryError";
+import { getAgentRetryConfig } from "./config/appConfig";
 
 dotenv.config();
 
@@ -70,7 +71,7 @@ async function bootstrap() {
   /**
    * POST /query
    * Body: { question: string }
-   * Runs the LangGraph agent with self-correction (up to 2 retries on validation/execution errors).
+    * Runs the LangGraph agent with self-correction up to the configured retry limit.
    */
   app.post("/query", async (req, res) => {
     const { question } = req.body;
@@ -90,6 +91,8 @@ async function bootstrap() {
           data: result.data,
           retrievedTables: result.retrievedTables,
           retryCount: result.retryCount,
+          maxRetries: result.maxRetries,
+          maxAttempts: result.maxAttempts,
           errorHistory: result.errorHistory,
           finalError: null,
         });
@@ -100,6 +103,8 @@ async function bootstrap() {
           detail: result.detail,
           sql: result.sql,
           retryCount: result.retryCount,
+          maxRetries: result.maxRetries,
+          maxAttempts: result.maxAttempts,
           errorHistory: result.errorHistory,
           phase: result.phase,
           displayTarget: result.displayTarget,
@@ -126,6 +131,14 @@ async function bootstrap() {
     }
 
     await streamAgent(question, res);
+  });
+
+  app.get("/config", (_req, res) => {
+    const retryConfig = getAgentRetryConfig();
+
+    res.json({
+      agent: retryConfig,
+    });
   });
 
   // --- Start ---

@@ -68,6 +68,37 @@ export class QueryMessageComponent implements OnChanges {
     return this.hasSqlBoxError || (!!this.message.sql && this.showSql);
   }
 
+  get maxAttempts(): number {
+    if (typeof this.message.maxAttempts === 'number') {
+      return this.message.maxAttempts;
+    }
+
+    if (typeof this.message.maxRetries === 'number') {
+      return this.message.maxRetries + 1;
+    }
+
+    return Math.max(this.workflowAttempts.length, 1);
+  }
+
+  get retryNote(): string | null {
+    const maxRetries = this.message.maxRetries;
+    const retriesFromWorkflow = Math.max(this.workflowAttempts.length - 1, 0);
+    const fallbackRetries = this.message.retryCount ?? 0;
+    const retriesUsed = typeof maxRetries === 'number'
+      ? Math.min(retriesFromWorkflow || fallbackRetries, maxRetries)
+      : retriesFromWorkflow || fallbackRetries;
+
+    if (retriesUsed <= 0) {
+      return null;
+    }
+
+    if (typeof maxRetries === 'number') {
+      return `↻ ${retriesUsed} of ${maxRetries} retry(s) used`;
+    }
+
+    return `↻ ${retriesUsed} retry(s) used`;
+  }
+
   get sqlToggleLabel(): string {
     return this.hasSqlBoxError ? 'SQL Generation Error' : 'Generated SQL';
   }

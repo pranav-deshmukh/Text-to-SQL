@@ -29,5 +29,7 @@ export interface Message {
   };
   agentSteps?: AgentStep[];
   retryCount?: number;
+  maxRetries?: number;
+  maxAttempts?: number;
   timestamp: Date;
 }

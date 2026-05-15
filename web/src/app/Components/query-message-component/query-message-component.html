@@ -26,7 +26,7 @@
                 <span *ngSwitchDefault>⚠</span>
               </ng-container>
             </span>
-            <span class="attempt-label">Try {{ attemptIndex + 1 }}</span>
+            <span class="attempt-label">Try {{ attemptIndex + 1 }} of {{ maxAttempts }}</span>
           </button>
 
           <div *ngIf="isAttemptExpanded(attemptIndex)" class="workflow-list">
@@ -61,7 +61,7 @@
         </div>
       </div>
 
-      <div *ngIf="message.retryCount" class="retry-note">↻ {{ message.retryCount }} retry(s) needed</div>
+      <div *ngIf="retryNote" class="retry-note">{{ retryNote }}</div>
     </div>
 
     <div *ngIf="showErrorCard" class="error-card">

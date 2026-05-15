@@ -7,12 +7,13 @@ import {
   executeNode,
   errorNode,
 } from "./nodes";
+import { getAgentRetryConfig } from "../config/appConfig";
 
-const MAX_RETRIES = 2;
+const { maxAttempts: MAX_ATTEMPTS } = getAgentRetryConfig();
 
 function afterGeneration(state: AgentStateType): "validate" | "retrieve" | "error" {
   if (!state.generationError) return "validate";
-  if (state.retryCount < MAX_RETRIES) return "retrieve"; // retry with error context
+  if (state.retryCount < MAX_ATTEMPTS) return "retrieve"; // retry with error context
   return "error";
 }
 
@@ -24,7 +25,7 @@ function afterGeneration(state: AgentStateType): "validate" | "retrieve" | "erro
  */
 function afterValidation(state: AgentStateType): "execute" | "retrieve" | "error" {
   if (!state.validationError) return "execute";
-  if (state.retryCount >= MAX_RETRIES) return "error";
+  if (state.retryCount >= MAX_ATTEMPTS) return "error";
   return "retrieve";
 }
 
@@ -36,7 +37,7 @@ function afterValidation(state: AgentStateType): "execute" | "retrieve" | "error
  */
 function afterExecution(state: AgentStateType): "__end__" | "generate" | "error" {
   if (!state.executionError) return "__end__";
-  if (state.retryCount >= MAX_RETRIES) return "error";
+  if (state.retryCount >= MAX_ATTEMPTS) return "error";
   return "generate";
 }
 

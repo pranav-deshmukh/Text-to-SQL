@@ -6,8 +6,10 @@ import {
   buildValidationError,
 } from "../errors/queryError";
 import type { QueryErrorPhase } from "../errors/queryError";
+import { getAgentRetryConfig } from "../config/appConfig";
 
 const agent = buildAgentGraph();
+const retryConfig = getAgentRetryConfig();
 
 export interface AgentResult {
   question: string;
@@ -22,6 +24,8 @@ export interface AgentResult {
   error?: string;
   detail?: string;
   retryCount: number;
+  maxRetries: number;
+  maxAttempts: number;
   errorHistory: string[];
   retrievedTables: string[];
   phase?: QueryErrorPhase;
@@ -37,7 +41,7 @@ export interface AgentResult {
 
 /**
  * Run the agent graph end-to-end for a given question.
- * The agent will self-correct on validation/execution errors (max 2 retries).
+ * The agent will self-correct on validation/execution errors up to the configured retry limit.
  * 
  */
 export async function runAgent(question: string): Promise<AgentResult> {
@@ -56,6 +60,8 @@ export async function runAgent(question: string): Promise<AgentResult> {
     } : null,
     status: finalState.status as "success" | "error",
     retryCount: finalState.retryCount,
+    maxRetries: retryConfig.maxRetries,
+    maxAttempts: retryConfig.maxAttempts,
     errorHistory: finalState.errorHistory,
     retrievedTables: finalState.retrievedTables,
   };
@@ -126,6 +132,8 @@ export async function streamAgent(question: string, res: Response): Promise<void
           executionError: update.executionError,
           retrievedTables: update.retrievedTables,
           retryCount: update.retryCount,
+          maxRetries: retryConfig.maxRetries,
+          maxAttempts: retryConfig.maxAttempts,
           status: update.status,
           rowCount: update.rowCount,
           executionTimeMs: update.executionTimeMs,
@@ -145,6 +153,8 @@ export async function streamAgent(question: string, res: Response): Promise<void
       } : null,
       status: accumulated.status as "success" | "error",
       retryCount: accumulated.retryCount || 0,
+      maxRetries: retryConfig.maxRetries,
+      maxAttempts: retryConfig.maxAttempts,
       errorHistory: accumulated.errorHistory || [],
       retrievedTables: accumulated.retrievedTables || [],
     };
@@ -171,7 +181,11 @@ export async function streamAgent(question: string, res: Response): Promise<void
 
     sendEvent("done", finalResult);
   } catch (err: any) {
-    sendEvent("error", buildGenerationError(err?.message || "Agent stream failed before SQL could be generated."));
+    sendEvent("error", {
+      ...buildGenerationError(err?.message || "Agent stream failed before SQL could be generated."),
+      maxRetries: retryConfig.maxRetries,
+      maxAttempts: retryConfig.maxAttempts,
+    });
   } finally {
     res.end();
   }
