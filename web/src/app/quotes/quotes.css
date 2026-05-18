@@ -41,6 +41,16 @@
   gap: 12px;
 }
 
+.logs-link {
+  color: var(--teal-bright);
+  text-decoration: none;
+  font-size: 12px;
+  border: 1px solid var(--border-bright);
+  border-radius: 20px;
+  padding: 5px 10px;
+  background: var(--bg-card);
+}
+
 .brand-group {
   display: flex;
   align-items: center;

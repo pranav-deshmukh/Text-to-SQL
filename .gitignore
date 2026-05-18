@@ -13,6 +13,7 @@ web/node_modules/
 web/.angular/
 web/dist/
 services/query-engine/dist/
+services/query-engine/logs/
 
 # Local docs
 context.md
