@@ -1,0 +1,138 @@
+<div class="logs-shell">
+  <header class="logs-header">
+    <div>
+      <h1>Developer Audit Logs</h1>
+      <p class="subtitle">Track full NL → SQL lifecycle with stage-by-stage outcomes.</p>
+    </div>
+    <a routerLink="/" class="back-link">← Back to Query</a>
+  </header>
+
+  <section class="summary-grid" *ngIf="!loading && records.length > 0">
+    <article class="summary-card">
+      <span class="summary-label">Total Matched</span>
+      <strong>{{ total }}</strong>
+    </article>
+    <article class="summary-card success">
+      <span class="summary-label">Success</span>
+      <strong>{{ successCount }}</strong>
+    </article>
+    <article class="summary-card error">
+      <span class="summary-label">Errors</span>
+      <strong>{{ errorCount }}</strong>
+    </article>
+    <article class="summary-card">
+      <span class="summary-label">Shown</span>
+      <strong>{{ displayedCount }}</strong>
+    </article>
+  </section>
+
+  <section class="filters">
+    <div class="filter-field filter-search">
+      <label for="search">Search</label>
+      <input
+        id="search"
+        type="text"
+        [(ngModel)]="filters.q"
+        placeholder="request id, question, sql, error..."
+        name="search"
+      />
+    </div>
+
+    <div class="filter-field">
+      <label for="status">Status</label>
+      <select id="status" [(ngModel)]="filters.status" name="status">
+        <option value="">All</option>
+        <option value="success">Success</option>
+        <option value="error">Error</option>
+      </select>
+    </div>
+
+    <div class="filter-field">
+      <label for="stage">Stage</label>
+      <select id="stage" [(ngModel)]="filters.stage" name="stage">
+        <option value="">All</option>
+        <option *ngFor="let stage of stages" [value]="stage">{{ formatStageName(stage) }}</option>
+      </select>
+    </div>
+
+    <div class="filter-field">
+      <label for="from">From</label>
+      <input id="from" type="date" [(ngModel)]="filters.from" name="from" />
+    </div>
+
+    <div class="filter-field">
+      <label for="to">To</label>
+      <input id="to" type="date" [(ngModel)]="filters.to" name="to" />
+    </div>
+
+    <div class="filter-actions">
+      <button type="button" (click)="applyFilters()" [disabled]="loading">Search</button>
+      <button type="button" class="secondary" (click)="resetFilters()" [disabled]="loading">Reset</button>
+    </div>
+  </section>
+
+  <p *ngIf="error" class="error">{{ error }}</p>
+  <p *ngIf="loading" class="hint">Loading logs...</p>
+
+  <section class="log-list" *ngIf="!loading && records.length > 0">
+    <article class="log-card" *ngFor="let record of records; trackBy: trackByRequestId">
+      <button class="log-head" type="button" (click)="toggleExpand(record.requestId)">
+        <div class="head-left">
+          <span class="status" [class.error-status]="record.status === 'error'">
+            {{ record.status }}
+          </span>
+          <strong>{{ record.endpoint }}</strong>
+        </div>
+
+        <div class="head-middle">
+          <span class="id">{{ record.requestId }}</span>
+          <button class="copy-btn" type="button" (click)="copyRequestId(record.requestId, $event)">Copy ID</button>
+        </div>
+
+        <div class="head-right">
+          <span>{{ record.startedAt | date: 'medium' }}</span>
+          <span class="duration" *ngIf="record.completedAt">{{ getRequestDurationMs(record) }} ms</span>
+        </div>
+      </button>
+
+      <div *ngIf="expandedRequestId === record.requestId" class="log-body">
+        <div class="question-box">
+          <span class="label">Question</span>
+          <p>{{ record.question || '-' }}</p>
+        </div>
+
+        <p *ngIf="record.status === 'error'" class="error error-banner">
+          <strong>Failure summary:</strong> {{ getErrorSummary(record) }}
+        </p>
+
+        <div class="stages">
+          <div class="stage" *ngFor="let stage of record.stages">
+            <div class="stage-title">
+              <span class="stage-dot" [class.stage-dot-error]="stage.status === 'error'"></span>
+              <strong>{{ formatStageName(stage.stage) }}</strong>
+              <span class="stage-status" [class.error-status]="stage.status === 'error'">{{ stage.status }}</span>
+              <span class="stage-time">{{ stage.timestamp | date: 'mediumTime' }}</span>
+              <span class="duration" *ngIf="stage.durationMs">{{ stage.durationMs }} ms</span>
+            </div>
+            <p *ngIf="stage.error" class="error">
+              {{ stage.error.message }}
+            </p>
+
+            <details *ngIf="stage.details" class="stage-details">
+              <summary>Details</summary>
+              <pre>{{ stage.details | json }}</pre>
+            </details>
+          </div>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <p *ngIf="!loading && records.length === 0" class="hint">No logs found.</p>
+
+  <footer class="pager" *ngIf="total > pageSize">
+    <button type="button" (click)="loadLogs(page - 1)" [disabled]="!hasPrevPage || loading">Prev</button>
+    <span>Page {{ page }}</span>
+    <button type="button" (click)="loadLogs(page + 1)" [disabled]="!hasNextPage || loading">Next</button>
+  </footer>
+</div>

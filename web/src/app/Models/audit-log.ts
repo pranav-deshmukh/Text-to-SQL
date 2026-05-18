@@ -1,0 +1,34 @@
+export interface AuditStageError {
+  name?: string;
+  message: string;
+  code?: string;
+  stack?: string;
+}
+
+export interface AuditStageRecord {
+  stage: string;
+  status: 'success' | 'error';
+  timestamp: string;
+  durationMs?: number;
+  details?: Record<string, unknown>;
+  error?: AuditStageError;
+}
+
+export interface AuditRequestRecord {
+  requestId: string;
+  endpoint: string;
+  appEnv: 'dev' | 'prod';
+  startedAt: string;
+  completedAt?: string;
+  status: 'success' | 'error';
+  question?: string;
+  stages: AuditStageRecord[];
+  summary?: Record<string, unknown>;
+}
+
+export interface AuditLogsResponse {
+  total: number;
+  page: number;
+  pageSize: number;
+  items: AuditRequestRecord[];
+}
