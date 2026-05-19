@@ -14,7 +14,7 @@
           <span class="status-dot"></span>
           <span>MS SQL Connected</span>
         </div>
-        <a class="logs-link" href="/logs">View Logs</a>
+        <a *ngIf="showLogsButton" class="logs-link" href="/logs">View Logs</a>
       </div>
     </div>
   </header>

@@ -8,6 +8,7 @@ import { QueryMessageComponent } from '../Components/query-message-component/que
 import { AgentStep, Message } from '../Models/message';
 import { QueryResponse } from '../Models/query-response';
 import { AgentStreamNodeEvent, QueryService } from '../Services/query-service';
+import { environment } from '../../environments/environment';
 
 @Component({
   selector: 'app-quotes',
@@ -29,6 +30,7 @@ export class QuotesComponent {
   input = '';
   loading = false;
   messages: Message[] = [];
+  showLogsButton = environment.enableLogsUi;
 
   constructor(
     private readonly queryService: QueryService,
