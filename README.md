@@ -132,6 +132,8 @@ QDRANT_URL=http://localhost:6333
 DB_CONNECTION_STRING=Driver={ODBC Driver 18 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;Uid=YOUR_USER;Pwd=YOUR_PASSWORD;TrustServerCertificate=Yes;
 ```
 
+Set `APP_ENV=prod` for production. Audit logs and the logs UI are disabled automatically in production mode.
+
 ### 4. Install backend dependencies
 
 ```bash

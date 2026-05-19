@@ -16,9 +16,27 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
+function resolveAppEnvironment(): AppEnvironment {
+  const rawAppEnv = process.env.APP_ENV?.toLowerCase();
+  if (rawAppEnv === "prod" || rawAppEnv === "production") {
+    return "prod";
+  }
+
+  const rawProdEnv = process.env.PROD_ENV?.toLowerCase();
+  if (["1", "true", "yes", "on"].includes(rawProdEnv || "")) {
+    return "prod";
+  }
+
+  const rawNodeEnv = process.env.NODE_ENV?.toLowerCase();
+  if (rawNodeEnv === "prod" || rawNodeEnv === "production") {
+    return "prod";
+  }
+
+  return "dev";
+}
+
 export function getAuditConfig(): AuditConfig {
-  const rawEnv = (process.env.APP_ENV || "dev").toLowerCase();
-  const appEnv: AppEnvironment = rawEnv === "prod" ? "prod" : "dev";
+  const appEnv = resolveAppEnvironment();
   const enabledByEnv = appEnv === "dev";
   const enabled = parseBoolean(process.env.AUDIT_ENABLED, enabledByEnv) && appEnv === "dev";
   const uiEnabled = parseBoolean(process.env.AUDIT_UI_ENABLED, true) && enabled;
