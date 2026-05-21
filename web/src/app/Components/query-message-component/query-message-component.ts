@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
-import { Component, Input, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges } from '@angular/core';
 import { AgentStep, Message } from '../../Models/message';
+import { ExportFormat, ResultExportService } from '../../Services/result-export.service';
 
 @Component({
   selector: 'app-query-message-component',
@@ -12,13 +13,31 @@ import { AgentStep, Message } from '../../Models/message';
 export class QueryMessageComponent implements OnChanges {
   @Input({ required: true }) message!: Message;
 
+  readonly downloadOptions: Array<{ format: ExportFormat; label: string; description: string }> = [
+    { format: 'csv', label: 'CSV', description: 'Comma-separated values' },
+    { format: 'excel', label: 'Excel', description: 'Styled spreadsheet (.xlsx)' },
+    { format: 'pdf', label: 'PDF', description: 'Formatted table document' },
+  ];
+
   showSql = false;
   expandedAttempts = new Set<number>();
+  downloadMenuOpen = false;
+  activeExportFormat: ExportFormat | null = null;
+  exportErrorMessage: string | null = null;
+
+  constructor(
+    private readonly resultExportService: ResultExportService,
+    private readonly hostElement: ElementRef<HTMLElement>,
+  ) {}
 
   ngOnChanges(changes: SimpleChanges): void {
     if (!changes['message']) {
       return;
     }
+
+    this.downloadMenuOpen = false;
+    this.activeExportFormat = null;
+    this.exportErrorMessage = null;
 
     const attempts = this.workflowAttempts;
     if (attempts.length === 0) {
@@ -35,6 +54,49 @@ export class QueryMessageComponent implements OnChanges {
     this.showSql = !this.showSql;
   }
 
+  @HostListener('document:click', ['$event'])
+  handleDocumentClick(event: MouseEvent): void {
+    const target = event.target;
+    if (!(target instanceof Node)) {
+      return;
+    }
+
+    if (!this.hostElement.nativeElement.contains(target)) {
+      this.downloadMenuOpen = false;
+    }
+  }
+
+  toggleDownloadMenu(event: MouseEvent): void {
+    event.stopPropagation();
+
+    if (!this.canDownloadResults || this.isExporting) {
+      return;
+    }
+
+    this.exportErrorMessage = null;
+    this.downloadMenuOpen = !this.downloadMenuOpen;
+  }
+
+  async downloadResults(format: ExportFormat, event: MouseEvent): Promise<void> {
+    event.stopPropagation();
+
+    if (!this.canDownloadResults || !this.message.data || this.isExporting) {
+      return;
+    }
+
+    this.downloadMenuOpen = false;
+    this.exportErrorMessage = null;
+    this.activeExportFormat = format;
+
+    try {
+      await this.resultExportService.exportResults(format, this.message.data);
+    } catch (error) {
+      this.exportErrorMessage = error instanceof Error ? error.message : 'Unable to download results.';
+    } finally {
+      this.activeExportFormat = null;
+    }
+  }
+
   cellValue(row: Record<string, unknown>, column: string): string {
     const value = row[column];
     return value === null || value === undefined ? '—' : String(value);
@@ -46,6 +108,32 @@ export class QueryMessageComponent implements OnChanges {
 
   get hasSqlBoxError(): boolean {
     return this.message.displayTarget === 'sql-box' && !!this.message.error;
+  }
+
+  get canDownloadResults(): boolean {
+    const data = this.message.data;
+    return !!data && !this.message.error && data.columns.length > 0 && data.rowCount > 0;
+  }
+
+  get isExporting(): boolean {
+    return this.activeExportFormat !== null;
+  }
+
+  get downloadButtonLabel(): string {
+    if (this.activeExportFormat) {
+      return `Preparing ${this.formatLabel(this.activeExportFormat)}...`;
+    }
+
+    return 'Download';
+  }
+
+  isFormatBusy(format: ExportFormat): boolean {
+    return this.activeExportFormat === format;
+  }
+
+  formatLabel(format: ExportFormat): string {
+    const option = this.downloadOptions.find((downloadOption) => downloadOption.format === format);
+    return option?.label ?? format.toUpperCase();
   }
 
   get showErrorCard(): boolean {

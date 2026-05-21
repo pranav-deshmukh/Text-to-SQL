@@ -75,6 +75,136 @@ input {
   color: var(--text-primary);
 }
 
+app-query-message-component .results-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+app-query-message-component .download-dropdown {
+  position: relative;
+}
+
+app-query-message-component .download-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-bright);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+app-query-message-component .download-trigger:hover:not(:disabled),
+app-query-message-component .download-dropdown.open .download-trigger {
+  border-color: var(--teal-primary);
+  box-shadow: 0 0 0 3px rgba(14, 165, 160, 0.12);
+}
+
+app-query-message-component .download-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+app-query-message-component .download-trigger-arrow {
+  display: inline-flex;
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+app-query-message-component .download-trigger-arrow.expanded {
+  transform: rotate(180deg);
+}
+
+app-query-message-component .download-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 230px;
+  padding: 6px;
+  border: 1px solid var(--border-bright);
+  border-radius: 12px;
+  background: var(--bg-card);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+  z-index: 3;
+}
+
+app-query-message-component .download-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+app-query-message-component .download-option:hover:not(:disabled) {
+  background: var(--bg-card-hover);
+}
+
+app-query-message-component .download-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+app-query-message-component .download-option-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+app-query-message-component .download-option-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+app-query-message-component .download-option-description {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+app-query-message-component .download-option-status {
+  color: var(--teal-primary);
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+}
+
+app-query-message-component .export-error-banner {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(232, 96, 74, 0.18);
+  background: rgba(232, 96, 74, 0.08);
+  color: var(--coral);
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  app-query-message-component .results-header,
+  app-query-message-component .results-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  app-query-message-component .download-dropdown,
+  app-query-message-component .download-trigger,
+  app-query-message-component .download-menu {
+    width: 100%;
+  }
+}
+
 code,
 pre,
 .font-mono {

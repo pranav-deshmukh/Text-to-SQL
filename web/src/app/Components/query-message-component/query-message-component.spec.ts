@@ -21,4 +21,23 @@ describe('QueryMessageComponent', () => {
 
     expect(fixture.nativeElement.textContent).toContain('Test question');
   });
+
+  it('enables downloads for successful result sets', () => {
+    const fixture = TestBed.createComponent(QueryMessageComponent);
+    fixture.componentInstance.message = {
+      id: '2',
+      role: 'assistant',
+      data: {
+        columns: ['Advisor', 'AUM'],
+        rows: [{ Advisor: 'Jane', AUM: 1250 }],
+        rowCount: 1,
+        executionTimeMs: 42,
+      },
+      timestamp: new Date(),
+    };
+
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.canDownloadResults).toBeTrue();
+  });
 });

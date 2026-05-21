@@ -106,11 +106,43 @@
           <span class="pill">{{ message.data.rowCount }} rows</span>
           <span>{{ message.data.columns.length }} columns</span>
         </div>
-        <span class="execution-time">
-          <span class="success-dot">●</span>
-          {{ message.data.executionTimeMs }}ms
-        </span>
+        <div class="results-actions">
+          <span class="execution-time">
+            <span class="success-dot">●</span>
+            {{ message.data.executionTimeMs }}ms
+          </span>
+
+          <div class="download-dropdown" [class.open]="downloadMenuOpen">
+            <button
+              type="button"
+              class="download-trigger"
+              [disabled]="!canDownloadResults || isExporting"
+              (click)="toggleDownloadMenu($event)"
+            >
+              <span>{{ downloadButtonLabel }}</span>
+              <span class="download-trigger-arrow" [class.expanded]="downloadMenuOpen">▾</span>
+            </button>
+
+            <div *ngIf="downloadMenuOpen" class="download-menu">
+              <button
+                *ngFor="let option of downloadOptions"
+                type="button"
+                class="download-option"
+                [disabled]="isExporting"
+                (click)="downloadResults(option.format, $event)"
+              >
+                <span class="download-option-copy">
+                  <span class="download-option-label">{{ option.label }}</span>
+                  <span class="download-option-description">{{ option.description }}</span>
+                </span>
+                <span class="download-option-status">{{ isFormatBusy(option.format) ? '...' : '↓' }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <div *ngIf="exportErrorMessage" class="export-error-banner">{{ exportErrorMessage }}</div>
 
       <div class="table-wrapper">
         <table>
