@@ -226,9 +226,12 @@
   transform: rotate(90deg);
 }
 
-.sql-card,
-.results-card {
+.sql-card {
   overflow: hidden;
+}
+
+.results-card {
+  overflow: visible;
 }
 
 .sql-card-error {

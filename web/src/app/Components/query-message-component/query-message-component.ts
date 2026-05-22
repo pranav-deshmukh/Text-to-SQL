@@ -1,6 +1,9 @@
 import { CommonModule } from '@angular/common';
-import { Component, Input, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges } from '@angular/core';
 import { AgentStep, Message } from '../../Models/message';
+import { ExportFormat, ResultExportService } from '../../Services/result-export.service';
+
+type PaginationItem = number | 'ellipsis';
 
 @Component({
   selector: 'app-query-message-component',
@@ -10,15 +13,36 @@ import { AgentStep, Message } from '../../Models/message';
   styleUrl: './query-message-component.css',
 })
 export class QueryMessageComponent implements OnChanges {
+  readonly pageSize = 100;
   @Input({ required: true }) message!: Message;
+
+  readonly downloadOptions: Array<{ format: ExportFormat; label: string; description: string }> = [
+    { format: 'csv', label: 'CSV', description: 'Comma-separated values' },
+    { format: 'excel', label: 'Excel', description: 'Styled spreadsheet (.xlsx)' },
+    { format: 'pdf', label: 'PDF', description: 'Formatted table document' },
+  ];
 
   showSql = false;
   expandedAttempts = new Set<number>();
+  downloadMenuOpen = false;
+  activeExportFormat: ExportFormat | null = null;
+  exportErrorMessage: string | null = null;
+  currentPage = 1;
+
+  constructor(
+    private readonly resultExportService: ResultExportService,
+    private readonly hostElement: ElementRef<HTMLElement>,
+  ) {}
 
   ngOnChanges(changes: SimpleChanges): void {
     if (!changes['message']) {
       return;
     }
+
+    this.currentPage = 1;
+    this.downloadMenuOpen = false;
+    this.activeExportFormat = null;
+    this.exportErrorMessage = null;
 
     const attempts = this.workflowAttempts;
     if (attempts.length === 0) {
@@ -35,6 +59,85 @@ export class QueryMessageComponent implements OnChanges {
     this.showSql = !this.showSql;
   }
 
+  @HostListener('document:click', ['$event'])
+  handleDocumentClick(event: MouseEvent): void {
+    const target = event.target;
+    if (!(target instanceof Node)) {
+      return;
+    }
+
+    if (!this.hostElement.nativeElement.contains(target)) {
+      this.downloadMenuOpen = false;
+    }
+  }
+
+  toggleDownloadMenu(event: MouseEvent): void {
+    event.stopPropagation();
+
+    if (!this.canDownloadResults || this.isExporting) {
+      return;
+    }
+
+    this.exportErrorMessage = null;
+    this.downloadMenuOpen = !this.downloadMenuOpen;
+  }
+
+  async downloadResults(format: ExportFormat, event: MouseEvent): Promise<void> {
+    event.stopPropagation();
+
+    if (!this.canDownloadResults || !this.message.data || this.isExporting) {
+      return;
+    }
+
+    this.downloadMenuOpen = false;
+    this.exportErrorMessage = null;
+    this.activeExportFormat = format;
+
+    try {
+      await this.resultExportService.exportResults(format, this.message.data);
+    } catch (error) {
+      this.exportErrorMessage = error instanceof Error ? error.message : 'Unable to download results.';
+    } finally {
+      this.activeExportFormat = null;
+    }
+  }
+
+  previousPage(): void {
+    if (!this.canGoToPreviousPage) {
+      return;
+    }
+
+    this.currentPage -= 1;
+  }
+
+  nextPage(): void {
+    if (!this.canGoToNextPage) {
+      return;
+    }
+
+    this.currentPage += 1;
+  }
+
+  goToPage(page: number): void {
+    if (page < 1 || page > this.totalPages || page === this.currentPage) {
+      return;
+    }
+
+    this.currentPage = page;
+  }
+
+  selectPaginationItem(item: PaginationItem): void {
+    if (item === 'ellipsis') {
+      return;
+    }
+
+    this.goToPage(item);
+  }
+
+  isActivePage(item: PaginationItem): boolean {
+    return item !== 'ellipsis' && item === this.currentPage;
+  }
+
   cellValue(row: Record<string, unknown>, column: string): string {
     const value = row[column];
     return value === null || value === undefined ? '—' : String(value);
@@ -46,6 +149,96 @@ export class QueryMessageComponent implements OnChanges {
 
   get hasSqlBoxError(): boolean {
     return this.message.displayTarget === 'sql-box' && !!this.message.error;
+  }
+
+  get canDownloadResults(): boolean {
+    const data = this.message.data;
+    return !!data && !this.message.error && data.columns.length > 0 && data.rowCount > 0;
+  }
+
+  get paginatedRows(): Array<Record<string, unknown>> {
+    const startIndex = (this.currentPage - 1) * this.pageSize;
+    return this.resultRows.slice(startIndex, startIndex + this.pageSize);
+  }
+
+  get totalPages(): number {
+    return Math.max(Math.ceil(this.resultRows.length / this.pageSize), 1);
+  }
+
+  get canGoToPreviousPage(): boolean {
+    return this.currentPage > 1;
+  }
+
+  get canGoToNextPage(): boolean {
+    return this.currentPage < this.totalPages;
+  }
+
+  get shouldShowPagination(): boolean {
+    return this.resultRows.length > this.pageSize;
+  }
+
+  get pageRangeStart(): number {
+    if (this.resultRows.length === 0) {
+      return 0;
+    }
+
+    return (this.currentPage - 1) * this.pageSize + 1;
+  }
+
+  get pageRangeEnd(): number {
+    return Math.min(this.currentPage * this.pageSize, this.resultRows.length);
+  }
+
+  get paginationItems(): PaginationItem[] {
+    if (this.totalPages <= 7) {
+      return Array.from({ length: this.totalPages }, (_, index) => index + 1);
+    }
+
+    const pages = new Set<number>([1, this.totalPages]);
+
+    if (this.currentPage <= 4) {
+      [2, 3, 4, 5].forEach((page) => pages.add(page));
+    } else if (this.currentPage >= this.totalPages - 3) {
+      [this.totalPages - 4, this.totalPages - 3, this.totalPages - 2, this.totalPages - 1]
+        .forEach((page) => pages.add(page));
+    } else {
+      [this.currentPage - 1, this.currentPage, this.currentPage + 1].forEach((page) => pages.add(page));
+    }
+
+    const sortedPages = [...pages].filter((page) => page > 0 && page <= this.totalPages).sort((left, right) => left - right);
+    const items: PaginationItem[] = [];
+
+    sortedPages.forEach((page, index) => {
+      const previousPage = sortedPages[index - 1];
+      if (previousPage && page - previousPage > 1) {
+        items.push('ellipsis');
+      }
+
+      items.push(page);
+    });
+
+    return items;
+  }
+
+  get isExporting(): boolean {
+    return this.activeExportFormat !== null;
+  }
+
+  get downloadButtonLabel(): string {
+    if (this.activeExportFormat) {
+      return `Preparing ${this.formatLabel(this.activeExportFormat)}...`;
+    }
+
+    return 'Download';
+  }
+
+  isFormatBusy(format: ExportFormat): boolean {
+    return this.activeExportFormat === format;
+  }
+
+  formatLabel(format: ExportFormat): string {
+    const option = this.downloadOptions.find((downloadOption) => downloadOption.format === format);
+    return option?.label ?? format.toUpperCase();
   }
 
   get showErrorCard(): boolean {
@@ -140,6 +333,10 @@ export class QueryMessageComponent implements OnChanges {
     }
 
     return attempts;
+  }
+
+  private get resultRows(): Array<Record<string, unknown>> {
+    return this.message.data?.rows ?? [];
   }
 
   toggleAttempt(index: number): void {
