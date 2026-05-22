@@ -5,6 +5,7 @@ import { environment } from '../../environments/environment';
 import { AuditLogsResponse } from '../Models/audit-log';
 import { QueryRequest } from '../Models/query-request';
 import { QueryResponse } from '../Models/query-response';
+import { AuthService } from './auth-service';
 
 export interface AgentStreamNodeEvent {
   node: string;
@@ -42,7 +43,19 @@ export interface AuditLogFilters {
 export class QueryService {
   private readonly apiUrl = environment.apiUrl;
 
-  constructor(private readonly http: HttpClient) {}
+  constructor(
+    private readonly http: HttpClient,
+    private readonly authService: AuthService,
+  ) {}
+
+  initiateQuestion(question: string): Observable<QueryResponse> {
+    const payload: QueryRequest = { question };
+    return this.http.post<QueryResponse>(`${this.apiUrl}/query/initiate`, payload);
+  }
+
+  resumeQuestion(threadId: string, approvedSQL: string): Observable<QueryResponse> {
+    return this.http.post<QueryResponse>(`${this.apiUrl}/query/resume`, { threadId, approvedSQL });
+  }
 
   submitQuestion(question: string): Observable<QueryResponse> {
     const payload: QueryRequest = { question };
@@ -65,10 +78,12 @@ export class QueryService {
 
   async streamAgentQuestion(question: string, handlers: AgentStreamHandlers): Promise<void> {
     const payload: QueryRequest = { question };
+    const token = this.authService.token;
     const response = await fetch(`${this.apiUrl}/query/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(payload),
     });

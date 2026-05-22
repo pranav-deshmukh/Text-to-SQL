@@ -10,11 +10,16 @@
       </div>
 
       <div class="topbar-actions">
+        <div class="mode-badge" [class.mode-badge-tech]="isTechTeam">
+          {{ currentModeLabel }}
+        </div>
         <div class="status-badge">
           <span class="status-dot"></span>
           <span>MS SQL Connected</span>
         </div>
-        <a *ngIf="showLogsButton" class="logs-link" href="/logs">View Logs</a>
+        <span class="user-chip">{{ currentUsername }}</span>
+        <a *ngIf="showLogsButton && isTechTeam" class="logs-link" [routerLink]="['/logs']">View Logs</a>
+        <button type="button" class="logout-button" (click)="logout()">Sign out</button>
       </div>
     </div>
   </header>
@@ -24,7 +29,9 @@
       <section *ngIf="messages.length === 0" class="empty-state">
         <div class="hero-icon">⚡</div>
         <h1>Ask anything about your data</h1>
-        <p>Natural language → SQL → Results, instantly</p>
+        <p>
+          {{ isTechTeam ? 'Review generated SQL, inspect context, and execute safely.' : 'Natural language → validated results, with SQL hidden by default.' }}
+        </p>
 
         <div class="suggestion-list">
           <button
@@ -50,35 +57,54 @@
             <span></span>
             <span></span>
           </div>
-          <span>Running agent workflow...</span>
+          <span>{{ isTechTeam ? 'Preparing SQL draft for review...' : 'Running validated query workflow...' }}</span>
         </div>
 
-        <div #messagesEnd></div>
+        <div *ngIf="reviewLoading" class="loading-row">
+          <div class="loading-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <span>Validating and executing reviewed SQL...</span>
+        </div>
       </section>
+
+      <section *ngIf="pendingReview" class="review-section">
+        <app-sql-review-panel
+          [draft]="pendingReview"
+          [loading]="reviewLoading"
+          (runSql)="runReviewedSql($event)"
+          (cancel)="cancelReview()"
+        ></app-sql-review-panel>
+      </section>
+
+      <div #messagesEnd></div>
     </div>
   </main>
 
   <footer class="footer-shell">
     <form class="content-width composer" (ngSubmit)="submitQuery()">
-      <div class="input-shell" [class.input-shell-disabled]="loading">
+      <div class="input-shell" [class.input-shell-disabled]="!canSubmit">
         <span class="input-icon">⌕</span>
         <input
           type="text"
           name="query"
           [(ngModel)]="input"
-          placeholder="Ask a question about your data..."
-          [disabled]="loading"
+          [placeholder]="pendingReview ? 'Finish or cancel the SQL review before starting another question...' : 'Ask a question about your data...'"
+          [disabled]="!canSubmit"
         />
         <button *ngIf="input" type="button" class="clear-button" (click)="input = ''">×</button>
       </div>
 
-      <button type="submit" class="submit-button" [disabled]="loading || !input.trim()">
+      <button type="submit" class="submit-button" [disabled]="!canSubmit || !input.trim()">
         {{ loading ? '...' : 'Ask →' }}
       </button>
     </form>
 
     <div class="content-width footer-hint">
       <span>SELECT only · Read-only access · Validated before execution</span>
+      <span *ngIf="isTechTeam">Tech mode exposes SQL review, prompt context, and manual re-run.</span>
     </div>
   </footer>
 </div>

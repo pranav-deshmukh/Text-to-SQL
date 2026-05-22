@@ -65,7 +65,8 @@ export class QueryMessageComponent implements OnChanges {
   }
 
   get showSqlCard(): boolean {
-    return this.hasSqlBoxError || (!!this.message.sql && this.showSql);
+    const canShowSql = this.message.allowSqlView;
+    return !!canShowSql && (this.hasSqlBoxError || (!!this.message.sql && this.showSql));
   }
 
   get maxAttempts(): number {

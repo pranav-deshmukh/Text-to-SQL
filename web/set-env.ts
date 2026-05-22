@@ -3,11 +3,15 @@ import * as fs from 'fs';
 
 dotenv.config();
 
+const apiUrl = process.env['API_URL']?.trim() || 'http://localhost:3001';
+const enableLogsUi = process.env['LOGS_UI'] === 'true';
+const production = process.env['PROD_ENV'] === 'true';
+
 const envConfig = `
 export const environment = {
-  production: ${process.env['PROD_ENV'] === 'true'},
-  apiUrl: '${process.env['API_URL']}',
-  enableLogsUi: ${process.env['LOGS_UI'] === 'true'},
+  production: ${production},
+  apiUrl: '${apiUrl}',
+  enableLogsUi: ${enableLogsUi},
 };
 `;
 

@@ -1,0 +1,57 @@
+<section class="review-card">
+  <div class="review-header">
+    <div>
+      <div class="eyebrow">TECH TEAM REVIEW</div>
+      <h2>Inspect and edit SQL before execution</h2>
+    </div>
+    <button type="button" class="ghost-button" (click)="cancel.emit()" [disabled]="loading">Cancel</button>
+  </div>
+
+  <div class="review-meta">
+    <span class="pill">Thread {{ draft.threadId.slice(0, 8) }}</span>
+    <span *ngIf="draft.retrievedTables?.length">{{ draft.retrievedTables?.length }} retrieved objects</span>
+  </div>
+
+  <div *ngIf="draft.lastError" class="review-error">
+    <strong>{{ draft.lastError.phase === 'validation' ? 'Validation blocked execution' : 'Execution failed' }}</strong>
+    <span>{{ draft.lastError.message }}</span>
+  </div>
+
+  <div class="panel-grid">
+    <div class="panel-block">
+      <div class="panel-title">Generated SQL</div>
+      <pre>{{ draft.generatedSQL }}</pre>
+    </div>
+
+    <div class="panel-block panel-block-editable">
+      <div class="panel-title">SQL editor</div>
+      <textarea [(ngModel)]="editableSql" spellcheck="false"></textarea>
+      <div class="editor-actions">
+        <button type="button" class="primary-button" (click)="submit()" [disabled]="loading || !editableSql.trim()">
+          {{ loading ? 'Running...' : 'Run SQL' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="detail-toggles">
+    <button type="button" class="toggle-link" (click)="showContext = !showContext">
+      {{ showContext ? 'Hide' : 'Show' }} retrieved schema context
+    </button>
+    <button type="button" class="toggle-link" (click)="showPrompt = !showPrompt">
+      {{ showPrompt ? 'Hide' : 'Show' }} assembled prompt
+    </button>
+  </div>
+
+  <div *ngIf="showContext && draft.schemaContext" class="detail-block">
+    <div class="panel-title">Retrieved schema context</div>
+    <pre>{{ draft.schemaContext }}</pre>
+  </div>
+
+  <div *ngIf="showPrompt && draft.promptPreview" class="detail-block">
+    <div class="panel-title">Prompt preview</div>
+    <pre>{{ draft.promptPreview.systemPrompt }}
+
+{{ draft.promptPreview.userPrompt }}</pre>
+  </div>
+</section>

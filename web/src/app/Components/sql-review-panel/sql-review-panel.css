@@ -1,0 +1,156 @@
+:host {
+  display: block;
+}
+
+.review-card {
+  padding: 20px;
+  border: 1px solid var(--border-bright);
+  border-radius: 16px;
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.review-header,
+.review-meta,
+.editor-actions,
+.detail-toggles {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.eyebrow,
+.panel-title,
+.toggle-link,
+.review-meta {
+  font-size: 12px;
+}
+
+.eyebrow,
+.panel-title {
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.review-header h2 {
+  margin: 6px 0 0;
+  color: var(--text-primary);
+  font-size: 20px;
+}
+
+.pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--teal-muted);
+  background: var(--teal-subtle);
+  color: var(--teal-bright);
+}
+
+.review-error,
+.panel-block,
+.detail-block {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.review-error {
+  padding: 14px 16px;
+  color: var(--coral);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(232, 96, 74, 0.1);
+  border-color: rgba(232, 96, 74, 0.24);
+}
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.panel-block,
+.detail-block {
+  overflow: hidden;
+}
+
+.panel-title {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+pre,
+textarea {
+  margin: 0;
+  width: 100%;
+  min-height: 280px;
+  padding: 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+textarea {
+  resize: vertical;
+  outline: none;
+}
+
+.panel-block-editable {
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-actions {
+  padding: 0 16px 16px;
+  justify-content: flex-end;
+}
+
+.primary-button,
+.ghost-button,
+.toggle-link {
+  font: inherit;
+}
+
+.primary-button,
+.ghost-button {
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.primary-button {
+  border: none;
+  background: linear-gradient(135deg, var(--teal-primary), var(--teal-bright));
+  color: #ffffff;
+}
+
+.ghost-button {
+  border: 1px solid var(--border-bright);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.toggle-link {
+  border: none;
+  background: none;
+  color: var(--teal-bright);
+  cursor: pointer;
+  padding: 0;
+}
+
+@media (max-width: 920px) {
+  .panel-grid {
+    grid-template-columns: 1fr;
+  }
+}

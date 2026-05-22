@@ -1,3 +1,11 @@
+Table	Description
+dbo.rep_master	Financial advisors/reps affiliated with LPL
+dbo.office_master	Physical office locations (OSJ)
+dbo.acct_master	Client accounts managed by advisors
+dbo.client_master	LPL clients (end investors)
+dbo.aum_snap	Monthly AUM snapshots per account
+dbo.hldg_dtl	Individual security holdings per account per snapshot
+
 -- dbo.rep_master
 -- Business purpose: Master record for every financial advisor/rep affiliated with LPL.
 -- One row per advisor. Central table — almost every query joins through here.

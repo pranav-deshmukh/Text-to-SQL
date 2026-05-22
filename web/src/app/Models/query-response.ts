@@ -1,9 +1,23 @@
 import { QueryResult } from './query-result';
 
 export interface QueryResponse {
-  status?: 'success' | 'error';
+  requestId?: string;
+  status?: 'success' | 'error' | 'awaiting_review';
   question?: string;
   sql?: string;
+  threadId?: string;
+  generatedSQL?: string;
+  editableSQL?: string;
+  schemaContext?: string;
+  retrievedTables?: string[];
+  promptPreview?: {
+    systemPrompt: string;
+    userPrompt: string;
+  };
+  lastError?: {
+    phase: 'validation' | 'execution';
+    message: string;
+  };
   data?: QueryResult;
   error?: string;
   detail?: string;

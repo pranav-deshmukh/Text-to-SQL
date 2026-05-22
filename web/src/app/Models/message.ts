@@ -11,6 +11,13 @@ export interface Message {
   role: 'user' | 'assistant';
   question?: string;
   sql?: string;
+  allowSqlView?: boolean;
+  retrievedTables?: string[];
+  schemaContext?: string;
+  promptPreview?: {
+    systemPrompt: string;
+    userPrompt: string;
+  };
   data?: QueryResult;
   error?: string;
   detail?: string;

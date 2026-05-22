@@ -2,18 +2,21 @@ import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, ElementRef, NgZone, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { take } from 'rxjs/operators';
 import { QueryMessageComponent } from '../Components/query-message-component/query-message-component';
+import { SqlReviewDraft, SqlReviewPanelComponent } from '../Components/sql-review-panel/sql-review-panel';
 import { AgentStep, Message } from '../Models/message';
 import { QueryResponse } from '../Models/query-response';
+import { AuthService } from '../Services/auth-service';
 import { AgentStreamNodeEvent, QueryService } from '../Services/query-service';
 import { environment } from '../../environments/environment';
 
 @Component({
   selector: 'app-quotes',
   standalone: true,
-  imports: [CommonModule, FormsModule, QueryMessageComponent],
+  imports: [CommonModule, FormsModule, RouterLink, QueryMessageComponent, SqlReviewPanelComponent],
   templateUrl: './quotes.html',
   styleUrl: './quotes.css',
 })
@@ -29,13 +32,35 @@ export class QuotesComponent {
 
   input = '';
   loading = false;
+  reviewLoading = false;
   messages: Message[] = [];
+  pendingReview: SqlReviewDraft | null = null;
   showLogsButton = environment.enableLogsUi;
 
   constructor(
     private readonly queryService: QueryService,
+    private readonly authService: AuthService,
+    private readonly router: Router,
     private readonly ngZone: NgZone,
-  ) {}
+  ) {
+    this.authService.restoreFromStorage();
+  }
+
+  get isTechTeam(): boolean {
+    return this.authService.isTechTeam;
+  }
+
+  get currentUsername(): string {
+    return this.authService.currentUser?.username || 'Unknown user';
+  }
+
+  get currentModeLabel(): string {
+    return this.isTechTeam ? 'Tech Team Mode' : 'End User Mode';
+  }
+
+  get canSubmit(): boolean {
+    return !this.loading && !this.reviewLoading && !this.pendingReview;
+  }
 
   applySuggestion(suggestion: string): void {
     this.input = suggestion;
@@ -47,7 +72,7 @@ export class QuotesComponent {
 
   async submitQuery(): Promise<void> {
     const question = this.input.trim();
-    if (!question || this.loading) {
+    if (!question || !this.canSubmit) {
       return;
     }
 
@@ -74,24 +99,76 @@ export class QuotesComponent {
     }
   }
 
-  private createAssistantMessage(response: QueryResponse): Message {
-    return {
-      id: crypto.randomUUID(),
-      role: 'assistant',
-      sql: response.sql,
-      data: response.data,
-      error: response.error,
-      detail: response.detail,
-      phase: response.phase,
-      displayTarget: response.displayTarget,
-      code: response.code,
-      finalError: response.finalError,
-      retryCount: response.retryCount,
-      maxRetries: response.maxRetries,
-      maxAttempts: response.maxAttempts,
-      tokens: response.tokens,
-      timestamp: new Date(),
-    };
+  async runReviewedSql(sql: string): Promise<void> {
+    if (!this.pendingReview || this.reviewLoading) {
+      return;
+    }
+
+    const reviewDraft = this.pendingReview;
+    this.reviewLoading = true;
+
+    try {
+      const response = await firstValueFrom(this.queryService.resumeQuestion(reviewDraft.threadId, sql));
+
+      if (response.status === 'awaiting_review') {
+        this.pendingReview = this.toReviewDraft(response, reviewDraft.sourceMessageId);
+        return;
+      }
+
+      this.pendingReview = null;
+      if (reviewDraft.sourceMessageId) {
+        this.updateAgentMessage(reviewDraft.sourceMessageId, (message) => ({
+          ...message,
+          ...this.createAssistantMessage(response),
+          id: message.id,
+          timestamp: message.timestamp,
+          agentSteps: message.agentSteps,
+        }));
+      } else {
+        this.messages = [...this.messages, this.createAssistantMessage(response)];
+      }
+    } catch (error) {
+      this.messages = [...this.messages, this.createErrorMessage(error)];
+    } finally {
+      this.reviewLoading = false;
+      this.scrollToBottomSoon();
+    }
+  }
+
+  cancelReview(): void {
+    if (!this.pendingReview) {
+      return;
+    }
+
+    const cancelledQuestion = this.pendingReview.question;
+    this.pendingReview = null;
+    this.messages = [
+      ...this.messages,
+      {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        error: 'SQL review cancelled.',
+        detail: `The generated SQL for "${cancelledQuestion}" was not executed. Submit the question again to regenerate a draft.`,
+        timestamp: new Date(),
+      },
+    ];
+    this.scrollToBottomSoon();
+  }
+
+  logout(): void {
+    this.authService.logout();
+    this.pendingReview = null;
+    this.messages = [];
+    void this.router.navigate(['/login']);
+  }
+
+  private handleInitiateResponse(response: QueryResponse): void {
+    if (response.status === 'awaiting_review') {
+      this.pendingReview = this.toReviewDraft(response);
+      return;
+    }
+
+    this.messages = [...this.messages, this.createAssistantMessage(response)];
   }
 
   private canRetry(retryCount?: number, maxAttempts?: number, maxRetries?: number): boolean {
@@ -107,6 +184,7 @@ export class QuotesComponent {
       {
         id: assistantId,
         role: 'assistant',
+        allowSqlView: this.isTechTeam,
         agentSteps: [{ node: 'retrieve', status: 'running' }],
         timestamp: new Date(),
       },
@@ -125,7 +203,7 @@ export class QuotesComponent {
               ...message,
               agentSteps: this.advanceAgentSteps(message.agentSteps || [], event),
               sql: event.sql || message.sql,
-              // Only surface the error on UI if this is the final failure (not mid-retry)
+              allowSqlView: this.isTechTeam,
               error: !isRetrying && event.generationError ? 'Unable to generate SQL for this question.' : isRetrying ? undefined : message.error,
               detail: !isRetrying && event.generationError ? event.generationError : isRetrying ? undefined : message.detail,
               phase: !isRetrying && event.generationError ? 'generation' : isRetrying ? undefined : message.phase,
@@ -138,9 +216,29 @@ export class QuotesComponent {
           });
         },
         onDone: (response) => {
+          if (response.status === 'awaiting_review') {
+            this.pendingReview = this.toReviewDraft(response, assistantId);
+            this.updateAgentMessage(assistantId, (message) => ({
+              ...message,
+              sql: response.generatedSQL || message.sql,
+              allowSqlView: this.isTechTeam,
+              retrievedTables: response.retrievedTables,
+              schemaContext: response.schemaContext,
+              promptPreview: response.promptPreview,
+              retryCount: response.retryCount ?? message.retryCount,
+              maxRetries: response.maxRetries ?? message.maxRetries,
+              maxAttempts: response.maxAttempts ?? message.maxAttempts,
+              agentSteps: (message.agentSteps || []).map((step) =>
+                step.status === 'running' ? { ...step, status: 'done' } : step,
+              ),
+            }));
+            return;
+          }
+
           this.updateAgentMessage(assistantId, (message) => ({
             ...message,
             sql: response.sql,
+            allowSqlView: this.isTechTeam,
             data: response.data,
             error: response.error,
             detail: response.detail,
@@ -151,6 +249,9 @@ export class QuotesComponent {
             retryCount: response.retryCount,
             maxRetries: response.maxRetries,
             maxAttempts: response.maxAttempts,
+            retrievedTables: response.retrievedTables,
+            schemaContext: response.schemaContext,
+            promptPreview: response.promptPreview,
             agentSteps: (message.agentSteps || []).map((step) =>
               step.status === 'running' ? { ...step, status: 'done' } : step,
             ),
@@ -178,9 +279,16 @@ export class QuotesComponent {
       const fallbackResponse = (error as Error & { response?: QueryResponse }).response;
 
       if (fallbackResponse) {
+        if (fallbackResponse.status === 'awaiting_review') {
+          this.pendingReview = this.toReviewDraft(fallbackResponse, assistantId);
+        }
+
         this.updateAgentMessage(assistantId, (message) => ({
           ...message,
-          ...this.createAssistantMessage(fallbackResponse),
+          ...this.createAssistantMessage({
+            ...fallbackResponse,
+            sql: fallbackResponse.sql || fallbackResponse.generatedSQL,
+          }),
           id: message.id,
           timestamp: message.timestamp,
           agentSteps: this.buildFallbackAgentSteps(fallbackResponse),
@@ -188,10 +296,17 @@ export class QuotesComponent {
         return;
       }
 
-      const response = await firstValueFrom(this.queryService.submitQuestion(question));
+      const response = await firstValueFrom(this.queryService.initiateQuestion(question));
+      if (response.status === 'awaiting_review') {
+        this.pendingReview = this.toReviewDraft(response, assistantId);
+      }
+
       this.updateAgentMessage(assistantId, (message) => ({
         ...message,
-        ...this.createAssistantMessage(response),
+        ...this.createAssistantMessage({
+          ...response,
+          sql: response.sql || response.generatedSQL,
+        }),
         id: message.id,
         timestamp: message.timestamp,
         agentSteps: this.buildFallbackAgentSteps(response),
@@ -211,18 +326,18 @@ export class QuotesComponent {
       );
     }
 
-    // Find the last step matching this node (prefer 'running' state, else last occurrence)
     let currentIndex = -1;
-    for (let i = steps.length - 1; i >= 0; i--) {
-      if (steps[i].node === event.node && steps[i].status === 'running') {
-        currentIndex = i;
+    for (let index = steps.length - 1; index >= 0; index--) {
+      if (steps[index].node === event.node && steps[index].status === 'running') {
+        currentIndex = index;
         break;
       }
     }
+
     if (currentIndex === -1) {
-      for (let i = steps.length - 1; i >= 0; i--) {
-        if (steps[i].node === event.node) {
-          currentIndex = i;
+      for (let index = steps.length - 1; index >= 0; index--) {
+        if (steps[index].node === event.node) {
+          currentIndex = index;
           break;
         }
       }
@@ -243,24 +358,27 @@ export class QuotesComponent {
     const nodeOrder: string[] = ['retrieve', 'generate', 'validate', 'execute'];
     const orderIndex = nodeOrder.indexOf(event.node);
 
-    if (!eventError && event.status !== 'error' && orderIndex >= 0 && orderIndex < nodeOrder.length - 1) {
+    if (
+      !eventError &&
+      event.status !== 'error' &&
+      event.status !== 'awaiting_review' &&
+      orderIndex >= 0 &&
+      orderIndex < nodeOrder.length - 1
+    ) {
       const nextNode = nodeOrder[orderIndex + 1];
       if (!steps.some((step) => step.node === nextNode && step.status === 'running')) {
         steps.push({ node: nextNode, status: 'running' });
       }
     }
 
-    // Generation retry → re-retrieve with error context, starts a new Try block
     if (event.generationError && this.canRetry(event.retryCount, event.maxAttempts, event.maxRetries)) {
       steps.push({ node: 'retrieve', status: 'running', detail: 'Retrying...' });
     }
 
-    // Validation retry → re-retrieve with error context, starts a new Try block
     if (event.validationError && this.canRetry(event.retryCount, event.maxAttempts, event.maxRetries)) {
       steps.push({ node: 'retrieve', status: 'running', detail: 'Retrying...' });
     }
 
-    // Execution retry → skip re-retrieve, go straight to generate with error context
     if (event.executionError && this.canRetry(event.retryCount, event.maxAttempts, event.maxRetries)) {
       steps.push({ node: 'generate', status: 'running', detail: 'Retrying...' });
     }
@@ -269,6 +387,13 @@ export class QuotesComponent {
   }
 
   private buildFallbackAgentSteps(response: QueryResponse): AgentStep[] {
+    if (response.status === 'awaiting_review') {
+      return [
+        { node: 'retrieve', status: 'done' },
+        { node: 'generate', status: 'done' },
+      ];
+    }
+
     if (response.phase === 'generation') {
       return [
         { node: 'retrieve', status: 'done' },
@@ -305,19 +430,54 @@ export class QuotesComponent {
     this.scrollToBottomSoon();
   }
 
+  private toReviewDraft(response: QueryResponse, sourceMessageId?: string): SqlReviewDraft {
+    return {
+      question: response.question || '',
+      threadId: response.threadId || '',
+      sourceMessageId,
+      generatedSQL: response.generatedSQL || '',
+      editableSQL: response.editableSQL || response.generatedSQL || '',
+      schemaContext: response.schemaContext,
+      promptPreview: response.promptPreview,
+      retrievedTables: response.retrievedTables,
+      lastError: response.lastError,
+    };
+  }
+
+  private createAssistantMessage(response: QueryResponse): Message {
+    return {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      sql: response.sql,
+      allowSqlView: this.isTechTeam,
+      data: response.data,
+      error: response.error,
+      detail: response.detail,
+      phase: response.phase,
+      displayTarget: response.displayTarget,
+      code: response.code,
+      finalError: response.finalError,
+      retryCount: response.retryCount,
+      maxRetries: response.maxRetries,
+      maxAttempts: response.maxAttempts,
+      retrievedTables: response.retrievedTables,
+      schemaContext: response.schemaContext,
+      promptPreview: response.promptPreview,
+      tokens: response.tokens,
+      timestamp: new Date(),
+    };
+  }
+
   private createErrorMessage(error: unknown): Message {
     if (error instanceof HttpErrorResponse) {
-      const httpError = error;
-      const apiError = httpError.error as QueryResponse | undefined;
+      const apiError = error.error as QueryResponse | undefined;
       return {
         id: crypto.randomUUID(),
         role: 'assistant',
-        error:
-          apiError?.error ||
-          httpError.message ||
-          'Failed to connect to query engine',
+        error: apiError?.error || error.message || 'Failed to connect to query engine',
         detail: apiError?.detail,
-        sql: apiError?.sql,
+        sql: this.isTechTeam ? apiError?.sql : undefined,
+        allowSqlView: this.isTechTeam,
         phase: apiError?.phase,
         displayTarget: apiError?.displayTarget,
         code: apiError?.code,

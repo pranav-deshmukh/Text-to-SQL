@@ -1,0 +1,41 @@
+<div class="login-shell">
+  <div class="login-card">
+    <div class="brand-row">
+      <div class="brand-mark">Q</div>
+      <div>
+        <div class="brand-title">QueryAssist</div>
+        <div class="brand-subtitle">Secure access to your SQL workspace</div>
+      </div>
+    </div>
+
+    <div class="login-copy">
+      <h1>Sign in</h1>
+      <p>Use your assigned credentials to continue.</p>
+    </div>
+
+    <form class="login-form" (ngSubmit)="submit()">
+      <label>
+        <span>Username</span>
+        <input type="text" name="username" [(ngModel)]="username" autocomplete="username" placeholder="Enter your username" />
+      </label>
+
+      <label>
+        <span>Password</span>
+        <input type="password" name="password" [(ngModel)]="password" autocomplete="current-password" placeholder="Enter your password" />
+      </label>
+
+      <div *ngIf="error" class="error-banner">{{ error }}</div>
+
+      <button type="submit" [disabled]="loading || !username.trim() || !password.trim()">
+        {{ loading ? 'Signing in...' : 'Sign in' }}
+      </button>
+    </form>
+
+    <div class="login-hint">
+      <span class="hint-label">Demo access</span>
+      <strong>enduser</strong> / <strong>EndUser&#64;123</strong>
+      <span class="hint-divider">•</span>
+      <strong>techteam</strong> / <strong>TechTeam&#64;123</strong>
+    </div>
+  </div>
+</div>

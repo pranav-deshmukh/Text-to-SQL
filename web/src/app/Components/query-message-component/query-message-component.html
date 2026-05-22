@@ -75,7 +75,7 @@
       </div>
     </div>
 
-    <button *ngIf="message.sql && !hasSqlBoxError" type="button" class="sql-toggle" (click)="toggleSql()">
+    <button *ngIf="message.allowSqlView && message.sql && !hasSqlBoxError" type="button" class="sql-toggle" (click)="toggleSql()">
       <span class="toggle-icon" [class.expanded]="showSql">▶</span>
       {{ showSql ? 'Hide' : 'View' }} Generated SQL
     </button>
