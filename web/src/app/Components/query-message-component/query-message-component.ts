@@ -33,6 +33,10 @@ export class QueryMessageComponent implements OnChanges {
   activeExportFormat: ExportFormat | null = null;
   exportErrorMessage: string | null = null;
   currentPage = 1;
+  showColumnSelector = false;
+  private selectedColumns = new Set<string>();
+  private lastMessageId: string | null = null;
+  private lastColumnsKey = '';
 
   constructor(
     private readonly resultExportService: ResultExportService,
@@ -44,8 +48,10 @@ export class QueryMessageComponent implements OnChanges {
       return;
     }
 
+    this.initializeColumnSelection();
     this.currentPage = 1;
     this.closeDownloadMenu();
+    this.closeColumnSelector();
     this.activeExportFormat = null;
     this.exportErrorMessage = null;
 
@@ -73,6 +79,7 @@ export class QueryMessageComponent implements OnChanges {
 
     if (!this.hostElement.nativeElement.contains(target)) {
       this.closeDownloadMenu();
+      this.closeColumnSelector();
     }
   }
 
@@ -106,7 +113,8 @@ export class QueryMessageComponent implements OnChanges {
   async downloadResults(format: ExportFormat, event: MouseEvent): Promise<void> {
     event.stopPropagation();
 
-    if (!this.canDownloadResults || !this.message.data || this.isExporting) {
+    const resultForExport = this.projectedResult;
+    if (!this.canDownloadResults || !resultForExport || this.isExporting) {
       return;
     }
 
@@ -115,12 +123,41 @@ export class QueryMessageComponent implements OnChanges {
     this.activeExportFormat = format;
 
     try {
-      await this.resultExportService.exportResults(format, this.message.data);
+      await this.resultExportService.exportResults(format, resultForExport);
     } catch (error) {
       this.exportErrorMessage = error instanceof Error ? error.message : 'Unable to download results.';
     } finally {
       this.activeExportFormat = null;
     }
+  }
+
+  toggleColumnSelector(event: MouseEvent): void {
+    event.stopPropagation();
+    this.showColumnSelector = !this.showColumnSelector;
+  }
+
+  closeColumnSelector(): void {
+    this.showColumnSelector = false;
+  }
+
+  toggleColumn(column: string, isChecked: boolean): void {
+    if (isChecked) {
+      this.selectedColumns.add(column);
+    } else {
+      this.selectedColumns.delete(column);
+    }
+  }
+
+  selectAllColumns(): void {
+    this.selectedColumns = new Set<string>(this.allColumns);
+  }
+
+  clearSelectedColumns(): void {
+    this.selectedColumns.clear();
+  }
+
+  isColumnSelected(column: string): boolean {
+    return this.selectedColumns.has(column);
   }
 
   previousPage(): void {
@@ -174,7 +211,7 @@ export class QueryMessageComponent implements OnChanges {
 
   get canDownloadResults(): boolean {
     const data = this.message.data;
-    return !!data && !this.message.error && data.columns.length > 0 && data.rowCount > 0;
+    return !!data && !this.message.error && this.selectedColumnCount > 0 && data.rowCount > 0;
   }
 
   get paginatedRows(): Array<Record<string, unknown>> {
@@ -251,6 +288,26 @@ export class QueryMessageComponent implements OnChanges {
     }
 
     return 'Download';
+  }
+
+  get allColumns(): string[] {
+    return this.message.data?.columns ?? [];
+  }
+
+  get displayedColumns(): string[] {
+    if (!this.message.data) {
+      return [];
+    }
+
+    return this.allColumns.filter((column) => this.selectedColumns.has(column));
+  }
+
+  get selectedColumnCount(): number {
+    return this.displayedColumns.length;
+  }
+
+  get hasDisplayedColumns(): boolean {
+    return this.selectedColumnCount > 0;
   }
 
   isFormatBusy(format: ExportFormat): boolean {
@@ -374,6 +431,32 @@ export class QueryMessageComponent implements OnChanges {
 
   private get resultRows(): Array<Record<string, unknown>> {
     return this.message.data?.rows ?? [];
+  }
+
+  private get projectedResult() {
+    if (!this.message.data || this.displayedColumns.length === 0) {
+      return null;
+    }
+
+    return {
+      ...this.message.data,
+      columns: this.displayedColumns,
+    };
+  }
+
+  private initializeColumnSelection(): void {
+    const columns = this.message.data?.columns ?? [];
+    const messageId = this.message.id;
+    const columnsKey = columns.join('|');
+
+    const messageChanged = this.lastMessageId !== messageId;
+    const columnsChanged = this.lastColumnsKey !== columnsKey;
+
+    if (messageChanged || columnsChanged) {
+      this.selectedColumns = new Set<string>(columns);
+      this.lastMessageId = messageId;
+      this.lastColumnsKey = columnsKey;
+    }
   }
 
   private closeDownloadMenu(): void {

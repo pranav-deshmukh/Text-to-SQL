@@ -104,13 +104,22 @@
       <div class="results-header">
         <div class="results-meta">
           <span class="pill">{{ message.data.rowCount }} rows</span>
-          <span>{{ message.data.columns.length }} columns</span>
+          <span>{{ selectedColumnCount }} / {{ message.data.columns.length }} columns</span>
         </div>
         <div class="results-actions">
           <span class="execution-time">
             <span class="success-dot">●</span>
             {{ message.data.executionTimeMs }}ms
           </span>
+
+          <button
+            type="button"
+            class="column-selector-trigger"
+            [disabled]="message.data.columns.length === 0"
+            (click)="toggleColumnSelector($event)"
+          >
+            Columns ({{ selectedColumnCount }})
+          </button>
 
           <div
             class="download-dropdown"
@@ -147,19 +156,37 @@
         </div>
       </div>
 
+      <div *ngIf="showColumnSelector" class="column-selector-panel" (click)="$event.stopPropagation()">
+        <div class="column-selector-toolbar">
+          <button type="button" class="column-toolbar-btn" (click)="selectAllColumns()">Select all</button>
+          <button type="button" class="column-toolbar-btn" (click)="clearSelectedColumns()">Clear all</button>
+        </div>
+
+        <div class="column-selector-list">
+          <label *ngFor="let column of message.data.columns" class="column-option">
+            <input
+              type="checkbox"
+              [checked]="isColumnSelected(column)"
+              (change)="toggleColumn(column, $any($event.target).checked)"
+            />
+            <span>{{ column }}</span>
+          </label>
+        </div>
+      </div>
+
       <div *ngIf="exportErrorMessage" class="export-error-banner">{{ exportErrorMessage }}</div>
 
-      <div class="table-wrapper">
+      <div *ngIf="hasDisplayedColumns; else noColumnsSelected" class="table-wrapper">
         <table>
           <thead>
             <tr>
-              <th *ngFor="let column of message.data.columns">{{ column }}</th>
+              <th *ngFor="let column of displayedColumns">{{ column }}</th>
             </tr>
           </thead>
           <tbody>
             <tr *ngFor="let row of paginatedRows">
               <td
-                *ngFor="let column of message.data.columns"
+                *ngFor="let column of displayedColumns"
                 [class.numeric-cell]="isNumericValue(row, column)"
                 [class.empty-cell]="cellValue(row, column) === '—'"
               >
@@ -170,7 +197,14 @@
         </table>
       </div>
 
-      <div *ngIf="shouldShowPagination" class="pagination-footer">
+      <ng-template #noColumnsSelected>
+        <div class="empty-state-card no-columns-card">
+          <span>○</span>
+          <span>Select at least one column to view or download results.</span>
+        </div>
+      </ng-template>
+
+      <div *ngIf="hasDisplayedColumns && shouldShowPagination" class="pagination-footer">
         <span class="pagination-summary">
           Showing {{ pageRangeStart }}-{{ pageRangeEnd }} of {{ message.data.rowCount }} rows
         </span>
