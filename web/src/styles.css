@@ -81,6 +81,71 @@ app-query-message-component .results-actions {
   gap: 12px;
 }
 
+app-query-message-component .pagination-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+app-query-message-component .pagination-summary {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+app-query-message-component .pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+app-query-message-component .pagination-button {
+  min-width: 36px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+app-query-message-component .pagination-button:hover:not(:disabled) {
+  background: var(--bg-card-hover);
+  border-color: var(--teal-muted);
+}
+
+app-query-message-component .pagination-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+app-query-message-component .pagination-page.active {
+  border-color: var(--teal-primary);
+  background: linear-gradient(135deg, var(--teal-primary), var(--teal-bright));
+  color: var(--text-inverse);
+  box-shadow: 0 8px 18px rgba(14, 165, 160, 0.22);
+}
+
+app-query-message-component .pagination-page.ellipsis {
+  min-width: auto;
+  padding: 0 4px;
+  border-color: transparent;
+  background: transparent;
+  opacity: 0.7;
+}
+
+app-query-message-component .pagination-nav {
+  padding: 0 14px;
+}
+
 app-query-message-component .download-dropdown {
   position: relative;
 }
@@ -193,14 +258,16 @@ app-query-message-component .export-error-banner {
 
 @media (max-width: 640px) {
   app-query-message-component .results-header,
-  app-query-message-component .results-actions {
+  app-query-message-component .results-actions,
+  app-query-message-component .pagination-footer {
     align-items: stretch;
     flex-direction: column;
   }
 
   app-query-message-component .download-dropdown,
   app-query-message-component .download-trigger,
-  app-query-message-component .download-menu {
+  app-query-message-component .download-menu,
+  app-query-message-component .pagination-controls {
     width: 100%;
   }
 }

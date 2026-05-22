@@ -152,7 +152,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let row of message.data.rows">
+            <tr *ngFor="let row of paginatedRows">
               <td
                 *ngFor="let column of message.data.columns"
                 [class.numeric-cell]="isNumericValue(row, column)"
@@ -163,6 +163,43 @@
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div *ngIf="shouldShowPagination" class="pagination-footer">
+        <span class="pagination-summary">
+          Showing {{ pageRangeStart }}-{{ pageRangeEnd }} of {{ message.data.rowCount }} rows
+        </span>
+        <div class="pagination-controls" aria-label="Results pagination">
+          <button
+            type="button"
+            class="pagination-button pagination-nav"
+            [disabled]="!canGoToPreviousPage"
+            (click)="previousPage()"
+          >
+            Prev
+          </button>
+
+          <button
+            *ngFor="let item of paginationItems"
+            type="button"
+            class="pagination-button pagination-page"
+            [class.active]="isActivePage(item)"
+            [class.ellipsis]="item === 'ellipsis'"
+            [disabled]="item === 'ellipsis'"
+            (click)="selectPaginationItem(item)"
+          >
+            {{ item === 'ellipsis' ? '…' : item }}
+          </button>
+
+          <button
+            type="button"
+            class="pagination-button pagination-nav"
+            [disabled]="!canGoToNextPage"
+            (click)="nextPage()"
+          >
+            Next
+          </button>
+        </div>
       </div>
     </div>
 
