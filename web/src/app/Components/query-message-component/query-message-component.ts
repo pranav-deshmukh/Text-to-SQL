@@ -1,9 +1,10 @@
 import { CommonModule } from '@angular/common';
-import { Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild } from '@angular/core';
 import { AgentStep, Message } from '../../Models/message';
 import { ExportFormat, ResultExportService } from '../../Services/result-export.service';
 
 type PaginationItem = number | 'ellipsis';
+type DownloadMenuDirection = 'down' | 'up';
 
 @Component({
   selector: 'app-query-message-component',
@@ -14,7 +15,10 @@ type PaginationItem = number | 'ellipsis';
 })
 export class QueryMessageComponent implements OnChanges {
   readonly pageSize = 100;
+  readonly downloadMenuOffset = 8;
   @Input({ required: true }) message!: Message;
+  @ViewChild('downloadTrigger') private downloadTrigger?: ElementRef<HTMLButtonElement>;
+  @ViewChild('downloadMenu') private downloadMenu?: ElementRef<HTMLDivElement>;
 
   readonly downloadOptions: Array<{ format: ExportFormat; label: string; description: string }> = [
     { format: 'csv', label: 'CSV', description: 'Comma-separated values' },
@@ -25,6 +29,7 @@ export class QueryMessageComponent implements OnChanges {
   showSql = false;
   expandedAttempts = new Set<number>();
   downloadMenuOpen = false;
+  downloadMenuDirection: DownloadMenuDirection = 'down';
   activeExportFormat: ExportFormat | null = null;
   exportErrorMessage: string | null = null;
   currentPage = 1;
@@ -40,7 +45,7 @@ export class QueryMessageComponent implements OnChanges {
     }
 
     this.currentPage = 1;
-    this.downloadMenuOpen = false;
+    this.closeDownloadMenu();
     this.activeExportFormat = null;
     this.exportErrorMessage = null;
 
@@ -67,8 +72,17 @@ export class QueryMessageComponent implements OnChanges {
     }
 
     if (!this.hostElement.nativeElement.contains(target)) {
-      this.downloadMenuOpen = false;
+      this.closeDownloadMenu();
     }
+  }
+
+  @HostListener('window:resize')
+  handleWindowResize(): void {
+    if (!this.downloadMenuOpen) {
+      return;
+    }
+
+    this.updateDownloadMenuPosition();
   }
 
   toggleDownloadMenu(event: MouseEvent): void {
@@ -79,7 +93,14 @@ export class QueryMessageComponent implements OnChanges {
     }
 
     this.exportErrorMessage = null;
-    this.downloadMenuOpen = !this.downloadMenuOpen;
+
+    if (this.downloadMenuOpen) {
+      this.closeDownloadMenu();
+      return;
+    }
+
+    this.downloadMenuOpen = true;
+    requestAnimationFrame(() => this.updateDownloadMenuPosition());
   }
 
   async downloadResults(format: ExportFormat, event: MouseEvent): Promise<void> {
@@ -89,7 +110,7 @@ export class QueryMessageComponent implements OnChanges {
       return;
     }
 
-    this.downloadMenuOpen = false;
+    this.closeDownloadMenu();
     this.exportErrorMessage = null;
     this.activeExportFormat = format;
 
@@ -241,6 +262,22 @@ export class QueryMessageComponent implements OnChanges {
     return option?.label ?? format.toUpperCase();
   }
 
+  calculateDownloadMenuDirection(
+    triggerRect: Pick<DOMRect, 'top' | 'bottom'>,
+    menuHeight: number,
+    viewportHeight: number,
+  ): DownloadMenuDirection {
+    const requiredSpace = menuHeight + this.downloadMenuOffset;
+    const spaceBelow = viewportHeight - triggerRect.bottom;
+    const spaceAbove = triggerRect.top;
+
+    if (spaceBelow >= requiredSpace || spaceBelow >= spaceAbove) {
+      return 'down';
+    }
+
+    return 'up';
+  }
+
   get showErrorCard(): boolean {
     if (this.workflowAttempts.length > 0) {
       return false;
@@ -337,6 +374,32 @@ export class QueryMessageComponent implements OnChanges {
 
   private get resultRows(): Array<Record<string, unknown>> {
     return this.message.data?.rows ?? [];
+  }
+
+  private closeDownloadMenu(): void {
+    this.downloadMenuOpen = false;
+    this.downloadMenuDirection = 'down';
+  }
+
+  private updateDownloadMenuPosition(): void {
+    const triggerElement = this.downloadTrigger?.nativeElement;
+    const menuElement = this.downloadMenu?.nativeElement;
+
+    if (!triggerElement || !menuElement) {
+      this.downloadMenuDirection = 'down';
+      return;
+    }
+
+    const footerEl = document.querySelector('.footer-shell');
+    const effectiveBottom = footerEl
+      ? footerEl.getBoundingClientRect().top
+      : window.innerHeight;
+
+    this.downloadMenuDirection = this.calculateDownloadMenuDirection(
+      triggerElement.getBoundingClientRect(),
+      menuElement.offsetHeight,
+      effectiveBottom,
+    );
   }
 
   toggleAttempt(index: number): void {

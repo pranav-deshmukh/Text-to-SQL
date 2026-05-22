@@ -75,7 +75,7 @@
       </div>
     </div>
 
-    <button *ngIf="message.allowSqlView && message.sql && !hasSqlBoxError" type="button" class="sql-toggle" (click)="toggleSql()">
+    <button *ngIf="message.sql && !hasSqlBoxError" type="button" class="sql-toggle" (click)="toggleSql()">
       <span class="toggle-icon" [class.expanded]="showSql">▶</span>
       {{ showSql ? 'Hide' : 'View' }} Generated SQL
     </button>
@@ -112,8 +112,13 @@
             {{ message.data.executionTimeMs }}ms
           </span>
 
-          <div class="download-dropdown" [class.open]="downloadMenuOpen">
+          <div
+            class="download-dropdown"
+            [class.open]="downloadMenuOpen"
+            [class.open-up]="downloadMenuDirection === 'up'"
+          >
             <button
+              #downloadTrigger
               type="button"
               class="download-trigger"
               [disabled]="!canDownloadResults || isExporting"
@@ -123,7 +128,7 @@
               <span class="download-trigger-arrow" [class.expanded]="downloadMenuOpen">▾</span>
             </button>
 
-            <div *ngIf="downloadMenuOpen" class="download-menu">
+            <div *ngIf="downloadMenuOpen" #downloadMenu class="download-menu">
               <button
                 *ngFor="let option of downloadOptions"
                 type="button"

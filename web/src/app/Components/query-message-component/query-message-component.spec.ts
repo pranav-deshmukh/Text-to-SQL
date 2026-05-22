@@ -112,6 +112,26 @@ describe('QueryMessageComponent', () => {
     expect(fixture.componentInstance.paginationItems).toEqual([1, 'ellipsis', 6, 7, 8, 9, 10]);
   });
 
+  it('opens the download menu upward when space below is limited', () => {
+    const fixture = TestBed.createComponent(QueryMessageComponent);
+
+    expect(
+      fixture.componentInstance.calculateDownloadMenuDirection(
+        { top: 540, bottom: 580 },
+        180,
+        640,
+      ),
+    ).toBe('up');
+
+    expect(
+      fixture.componentInstance.calculateDownloadMenuDirection(
+        { top: 180, bottom: 220 },
+        180,
+        640,
+      ),
+    ).toBe('down');
+  });
+
   it('exports the full result set instead of the current page only', async () => {
     const fixture = TestBed.createComponent(QueryMessageComponent);
     const result = {

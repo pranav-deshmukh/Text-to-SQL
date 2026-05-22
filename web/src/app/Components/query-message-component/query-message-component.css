@@ -247,7 +247,8 @@
   padding: 8px 14px;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
-}
+  border-radius: 12px 12px 0 0;
+} 
 
 .sql-card-header-error {
   border-bottom-color: rgba(232, 96, 74, 0.25);
