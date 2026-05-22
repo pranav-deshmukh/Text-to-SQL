@@ -6,6 +6,7 @@ import { callLLM } from "../llm/gemini";
 import { retrieveContextDetailed } from "../rag/retriever";
 import { validateSQL } from "../validator/sqlValidator";
 import { getAgentRetryConfig } from "../config/appConfig";
+import { getDatabaseConfig } from "../config/dbRegistry";
 import {
   completeReviewSession,
   createReviewSession,
@@ -81,8 +82,13 @@ function buildDraftResponse(session: ReturnType<typeof createReviewSession> | No
   };
 }
 
-export async function initiateReviewFlow(question: string, userId: string): Promise<ReviewDraftResponse> {
-  const ragContext = await retrieveContextDetailed(question);
+export async function initiateReviewFlow(question: string, userId: string, dbId: string): Promise<ReviewDraftResponse> {
+  const database = getDatabaseConfig(dbId);
+  if (!database) {
+    throw new Error(`Unknown database: ${dbId}`);
+  }
+
+  const ragContext = await retrieveContextDetailed(question, database.qdrantCollection);
   const prompt = assemblePromptFromRAG(ragContext.schemaContext, question);
   const generatedSQL = (await callLLM(prompt.systemPrompt, prompt.userPrompt)).trim();
 
@@ -93,6 +99,7 @@ export async function initiateReviewFlow(question: string, userId: string): Prom
 
   const session = createReviewSession({
     userId,
+    dbId,
     question,
     generatedSql: generatedSQL,
     editableSql: generatedSQL,
@@ -107,6 +114,7 @@ export async function initiateReviewFlow(question: string, userId: string): Prom
 export async function streamReviewFlow(
   question: string,
   userId: string,
+  dbId: string,
   res: Response,
   hooks?: ReviewStreamHooks,
 ): Promise<ReviewDraftResponse | null> {
@@ -122,8 +130,13 @@ export async function streamReviewFlow(
   };
 
   try {
+    const database = getDatabaseConfig(dbId);
+    if (!database) {
+      throw new Error(`Unknown database: ${dbId}`);
+    }
+
     hooks?.onNodeStart?.("retrieve");
-    const ragContext = await retrieveContextDetailed(question);
+    const ragContext = await retrieveContextDetailed(question, database.qdrantCollection);
     const retrieveEvent = {
       node: "retrieve",
       retrievedTables: ragContext.tables.map((table) => table.tableName),
@@ -161,6 +174,7 @@ export async function streamReviewFlow(
 
     const session = createReviewSession({
       userId,
+      dbId,
       question,
       generatedSql: generatedSQL,
       editableSql: generatedSQL,
@@ -202,8 +216,12 @@ export async function resumeReviewFlow(threadId: string, userId: string, approve
   }
 
   const trimmedSql = approvedSQL.trim();
-  const connStr = process.env.DB_CONNECTION_STRING || "";
-  const validationResult = await validateSQL(trimmedSql, connStr);
+  const database = getDatabaseConfig(session.dbId);
+  if (!database) {
+    throw new Error(`Unknown database: ${session.dbId}`);
+  }
+
+  const validationResult = await validateSQL(trimmedSql, session.dbId, database.connectionString);
 
   if (!validationResult.valid) {
     const updated = updateReviewSession(threadId, (current) => ({
@@ -225,7 +243,7 @@ export async function resumeReviewFlow(threadId: string, userId: string, approve
   }
 
   try {
-    const data = await executeSQL(trimmedSql);
+    const data = await executeSQL(trimmedSql, session.dbId);
     completeReviewSession(threadId);
 
     return {

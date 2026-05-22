@@ -22,16 +22,16 @@ export interface ValidationResult {
   error?: string;
 }
 
-// Populated at startup by initValidator() via INFORMATION_SCHEMA query.
+// Populated at startup by registerValidator() via INFORMATION_SCHEMA query.
 // Never hardcoded — works for any database without code changes.
-let ALLOWED_TABLES = new Set<string>();
+const ALLOWED_TABLES_MAP = new Map<string, Set<string>>();
 
 /**
  * Must be called once at startup (before any validateSQL calls).
  * Queries INFORMATION_SCHEMA.TABLES to build the allowed-tables whitelist dynamically.
  * This way the validator works for any database without hardcoding table names.
  */
-export async function initValidator(connectionString: string): Promise<void> {
+export async function registerValidator(dbId: string, connectionString: string): Promise<void> {
   const sql = `
     SELECT TABLE_SCHEMA + '.' + TABLE_NAME AS full_name
     FROM INFORMATION_SCHEMA.TABLES
@@ -44,8 +44,9 @@ export async function initValidator(connectionString: string): Promise<void> {
         reject(new Error(`[Validator] Failed to load table whitelist: ${err.message}`));
         return;
       }
-      ALLOWED_TABLES = new Set((rows ?? []).map((r: any) => r.full_name.toLowerCase()));
-      console.log(`[Validator] ✅ Loaded ${ALLOWED_TABLES.size} tables into whitelist: ${[...ALLOWED_TABLES].join(", ")}`);
+      const allowedTables = new Set((rows ?? []).map((r: any) => r.full_name.toLowerCase()));
+      ALLOWED_TABLES_MAP.set(dbId, allowedTables);
+      console.log(`[Validator] ✅ Loaded ${allowedTables.size} tables into whitelist for ${dbId}: ${[...allowedTables].join(", ")}`);
       resolve();
     });
   });
@@ -171,7 +172,12 @@ function extractTableNames(sql: string): string[] {
  * against INFORMATION_SCHEMA.COLUMNS. This catches LLM hallucinating column names
  * that don't exist in the actual table.
  */
-function checkSchema(sql: string): ValidationResult {
+function checkSchema(sql: string, dbId: string): ValidationResult {
+  const allowedTables = ALLOWED_TABLES_MAP.get(dbId);
+  if (!allowedTables) {
+    return { valid: false, error: `Validator not initialized for database: ${dbId}.` };
+  }
+
   const cteNames = extractCTENames(sql);
   const tables = extractTableNames(sql);
 
@@ -184,10 +190,10 @@ function checkSchema(sql: string): ValidationResult {
     // Queries like "what tables do we have" legitimately need INFORMATION_SCHEMA.TABLES.
     if (table.startsWith("information_schema.")) continue;
 
-    if (!ALLOWED_TABLES.has(table)) {
+    if (!allowedTables.has(table)) {
       return {
         valid: false,
-        error: `Unknown table referenced: "${table}". Allowed tables: ${[...ALLOWED_TABLES].join(", ")}.`,
+        error: `Unknown table referenced: "${table}". Allowed tables: ${[...allowedTables].join(", ")}.`,
       };
     }
   }
@@ -202,7 +208,7 @@ function checkSchema(sql: string): ValidationResult {
  * @param sql - Raw SQL string from LLM
  * @param connectionString - ODBC connection string for PARSEONLY check
  */
-export async function validateSQL(sql: string, connectionString: string): Promise<ValidationResult> {
+export async function validateSQL(sql: string, dbId: string, connectionString: string): Promise<ValidationResult> {
   // Normalize: strip trailing semicolons (LLMs often append one).
   const cleanSql = sql.trim().replace(/;\s*$/, "");
 
@@ -221,7 +227,7 @@ export async function validateSQL(sql: string, connectionString: string): Promis
   }
 
   // Layer 3 — Schema whitelist check
-  const schemaResult = checkSchema(cleanSql);
+  const schemaResult = checkSchema(cleanSql, dbId);
   if (!schemaResult.valid) {
     console.warn(`[Validator] Layer 3 (Schema) failed: ${schemaResult.error}`);
     return schemaResult;

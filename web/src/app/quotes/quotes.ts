@@ -1,12 +1,13 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, ElementRef, NgZone, ViewChild } from '@angular/core';
+import { Component, ElementRef, NgZone, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { take } from 'rxjs/operators';
 import { QueryMessageComponent } from '../Components/query-message-component/query-message-component';
 import { SqlReviewDraft, SqlReviewPanelComponent } from '../Components/sql-review-panel/sql-review-panel';
+import { DatabaseOption } from '../Models/database';
 import { AgentStep, Message } from '../Models/message';
 import { QueryResponse } from '../Models/query-response';
 import { AuthService } from '../Services/auth-service';
@@ -20,19 +21,22 @@ import { environment } from '../../environments/environment';
   templateUrl: './quotes.html',
   styleUrl: './quotes.css',
 })
-export class QuotesComponent {
+export class QuotesComponent implements OnInit {
   @ViewChild('messagesEnd') private messagesEnd?: ElementRef<HTMLDivElement>;
 
   readonly suggestions = [
-    'Show total AUM by advisor',
-    'Show total transaction amount by advisor',
-    'Show total AUM by region',
-    'Show top 10 accounts by AUM',
+    'Show the top 10 records by total value',
+    'Summarize monthly activity trends',
+    'List the most active entities this quarter',
+    'Show counts grouped by status',
   ];
 
   input = '';
   loading = false;
   reviewLoading = false;
+  databases: DatabaseOption[] = [];
+  selectedDbId = '';
+  databasesLoading = true;
   messages: Message[] = [];
   pendingReview: SqlReviewDraft | null = null;
   showLogsButton = environment.enableLogsUi;
@@ -44,6 +48,21 @@ export class QuotesComponent {
     private readonly ngZone: NgZone,
   ) {
     this.authService.restoreFromStorage();
+  }
+
+  ngOnInit(): void {
+    this.queryService.getDatabases().subscribe({
+      next: (response) => {
+        this.databases = response.databases;
+        if (this.databases.length > 0) {
+          this.selectedDbId = this.databases[0].dbId;
+        }
+        this.databasesLoading = false;
+      },
+      error: () => {
+        this.databasesLoading = false;
+      },
+    });
   }
 
   get isTechTeam(): boolean {
@@ -59,7 +78,11 @@ export class QuotesComponent {
   }
 
   get canSubmit(): boolean {
-    return !this.loading && !this.reviewLoading && !this.pendingReview;
+    return !this.loading && !this.reviewLoading && !this.pendingReview && !!this.selectedDbId;
+  }
+
+  getSelectedDbName(): string {
+    return this.databases.find((db) => db.dbId === this.selectedDbId)?.displayName || 'Unknown';
   }
 
   applySuggestion(suggestion: string): void {
@@ -178,6 +201,7 @@ export class QuotesComponent {
 
   private async submitAgentQuery(question: string): Promise<void> {
     const assistantId = crypto.randomUUID();
+    const dbId = this.selectedDbId;
 
     this.messages = [
       ...this.messages,
@@ -192,7 +216,7 @@ export class QuotesComponent {
     this.scrollToBottomSoon();
 
     try {
-      await this.queryService.streamAgentQuestion(question, {
+      await this.queryService.streamAgentQuestion(question, dbId, {
         onNodeEnd: (event) => {
           this.updateAgentMessage(assistantId, (message) => {
             const isRetrying =
@@ -296,7 +320,7 @@ export class QuotesComponent {
         return;
       }
 
-      const response = await firstValueFrom(this.queryService.initiateQuestion(question));
+      const response = await firstValueFrom(this.queryService.initiateQuestion(question, dbId));
       if (response.status === 'awaiting_review') {
         this.pendingReview = this.toReviewDraft(response, assistantId);
       }

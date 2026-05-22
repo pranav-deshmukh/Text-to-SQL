@@ -7,7 +7,7 @@ import msnodesqlv8 from "msnodesqlv8";
  * Uses msnodesqlv8 directly for shared memory (no TCP needed).
  */
 
-let connectionString: string = "";
+const connectionStrings = new Map<string, string>();
 
 export interface SqlExecutorConfig {
   connectionString: string;
@@ -20,7 +20,7 @@ export interface QueryResult {
   executionTimeMs: number;
 }
 
-export async function initSqlExecutor(config: SqlExecutorConfig): Promise<void> {
+export async function registerSqlExecutor(dbId: string, config: SqlExecutorConfig): Promise<void> {
   console.log("🔌 Connecting with:", config.connectionString.replace(/Pwd=[^;]*/i, "Pwd=***"));
 
   // Test the connection
@@ -30,17 +30,18 @@ export async function initSqlExecutor(config: SqlExecutorConfig): Promise<void> 
         console.error("Connection error:", err.message);
         reject(err);
       } else {
-        connectionString = config.connectionString;
-        console.log("Connected to SQL Server");
+        connectionStrings.set(dbId, config.connectionString);
+        console.log(`Connected to SQL Server for database: ${dbId}`);
         resolve();
       }
     });
   });
 }
 
-export async function executeSQL(sqlQuery: string): Promise<QueryResult> {
+export async function executeSQL(sqlQuery: string, dbId: string): Promise<QueryResult> {
+  const connectionString = connectionStrings.get(dbId);
   if (!connectionString) {
-    throw new Error("SQL executor not initialized. Call initSqlExecutor() first.");
+    throw new Error(`No SQL connection registered for database: ${dbId}`);
   }
 
   const start = Date.now();

@@ -3,10 +3,10 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { randomUUID } from "crypto";
 import { assemblePromptFromRAG } from "./context/promptAssembler";
-import { initSqlExecutor } from "./executor/sqlExecutor";
+import { registerSqlExecutor } from "./executor/sqlExecutor";
 import { initVectorStore } from "./rag/vectorStore";
 import { retrieveContextDetailed } from "./rag/retriever";
-import { initValidator } from "./validator/sqlValidator";
+import { registerValidator } from "./validator/sqlValidator";
 import { AgentExecutionHooks, runAgentWithHooks, streamAgent } from "./agent";
 import { initiateReviewFlow, resumeReviewFlow, getReviewStatus, streamReviewFlow } from "./agent/reviewFlow";
 import { requireAuth, requireRole, type AuthenticatedRequest } from "./auth/middleware";
@@ -15,6 +15,7 @@ import { authenticateUser } from "./auth/users";
 import { buildInternalError, buildRequestError } from "./errors/queryError";
 import { getAgentRetryConfig } from "./config/appConfig";
 import { getAuditConfig } from "./config/auditConfig";
+import { getDatabaseConfig, getRegisteredDatabases } from "./config/dbRegistry";
 import { beginAudit, completeAudit, stageError, stageSuccess, startStage } from "./logging/auditLogger";
 import { queryAuditLogs } from "./logging/markdownLogParser";
 
@@ -72,17 +73,52 @@ function createAgentAuditHooks(requestId: string): AgentExecutionHooks {
   };
 }
 
-async function bootstrap() {
-  const connStr = process.env.DB_CONNECTION_STRING || "";
+function resolveDatabaseOrError(dbId: unknown) {
+  if (typeof dbId !== "string" || dbId.trim().length === 0) {
+    return {
+      error: buildRequestError("Missing 'dbId' in request body."),
+      status: 400,
+    };
+  }
 
-  await initSqlExecutor({ connectionString: connStr });
-  await initValidator(connStr);
-  await initVectorStore();
+  const database = getDatabaseConfig(dbId);
+  if (!database) {
+    return {
+      error: buildRequestError(`Unknown database: \"${dbId}\". Use GET /databases for available options.`),
+      status: 400,
+    };
+  }
+
+  return { database, status: 200 as const };
+}
+
+async function bootstrap() {
+  const databases = getRegisteredDatabases();
+  if (databases.length === 0) {
+    console.error("FATAL: No databases registered. Check DB_REGISTRY or REGISTERED_DBS env var.");
+    process.exit(1);
+  }
+
+  for (const database of databases) {
+    await registerSqlExecutor(database.dbId, { connectionString: database.connectionString });
+    await registerValidator(database.dbId, database.connectionString);
+    await initVectorStore(database.qdrantCollection);
+    console.log(`✅ Initialized database: ${database.displayName} (${database.dbId})`);
+  }
 
   // --- Routes ---
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: "query-engine" });
+  });
+
+  app.get("/databases", (_req, res) => {
+    res.json({
+      databases: getRegisteredDatabases().map((database) => ({
+        dbId: database.dbId,
+        displayName: database.displayName,
+      })),
+    });
   });
 
   app.post("/auth/login", (req, res) => {
@@ -118,10 +154,15 @@ async function bootstrap() {
    * Useful for debugging retrieval quality without triggering SQL generation.
    */
   app.post("/rag-inspect", requireAuth, async (req, res) => {
-    const { question, topK } = req.body;
+    const { question, dbId, topK } = req.body;
 
     if (!question || typeof question !== "string") {
       return res.status(400).json(buildRequestError("Missing 'question' in request body."));
+    }
+
+    const resolvedDatabase = resolveDatabaseOrError(dbId);
+    if (!resolvedDatabase.database) {
+      return res.status(resolvedDatabase.status).json(resolvedDatabase.error);
     }
 
     const requestedTopK =
@@ -130,7 +171,7 @@ async function bootstrap() {
         : undefined; // undefined = use RAG_TOP_K env default
 
     try {
-      const ragContext = await retrieveContextDetailed(question, requestedTopK);
+      const ragContext = await retrieveContextDetailed(question, resolvedDatabase.database.qdrantCollection, requestedTopK);
       const prompt = assemblePromptFromRAG(ragContext.schemaContext, question);
 
       return res.json({
@@ -152,7 +193,7 @@ async function bootstrap() {
 
   app.post("/query/initiate", requireAuth, async (req: AuthenticatedRequest, res) => {
     const requestId = randomUUID();
-    const { question } = req.body ?? {};
+    const { question, dbId } = req.body ?? {};
     const user = req.user;
     const auditConfig = getAuditConfig();
 
@@ -192,9 +233,22 @@ async function bootstrap() {
       return res.status(400).json(buildRequestError("Missing 'question' in request body."));
     }
 
+    const resolvedDatabase = resolveDatabaseOrError(dbId);
+    if (!resolvedDatabase.database) {
+      stageError(requestId, "input_validation", resolvedDatabase.error.detail || resolvedDatabase.error.error || "Invalid database.");
+      startStage(requestId, "request_completed");
+      stageError(requestId, "request_completed", "Request validation failed.");
+      await completeAudit(requestId, "error", {
+        code: "BAD_REQUEST",
+        endpoint: "/query/initiate",
+      });
+      return res.status(resolvedDatabase.status).json(resolvedDatabase.error);
+    }
+
     stageSuccess(requestId, "input_validation", {
       questionLength: question.length,
       role: user.role,
+      dbId: resolvedDatabase.database.dbId,
     });
 
     res.setHeader("x-request-id", requestId);
@@ -202,9 +256,10 @@ async function bootstrap() {
     try {
       if (user.role === "tech_team") {
         startStage(requestId, "context_retrieval");
-        const reviewDraft = await initiateReviewFlow(question, user.userId);
+        const reviewDraft = await initiateReviewFlow(question, user.userId, resolvedDatabase.database.dbId);
         stageSuccess(requestId, "context_retrieval", {
           retrievedTables: reviewDraft.retrievedTables,
+          dbId: resolvedDatabase.database.dbId,
         });
 
         startStage(requestId, "llm_sql_generation");
@@ -230,7 +285,7 @@ async function bootstrap() {
         });
       }
 
-      const result = await runAgentWithHooks(question, createAgentAuditHooks(requestId));
+      const result = await runAgentWithHooks(question, resolvedDatabase.database.dbId, createAgentAuditHooks(requestId));
       result.requestId = requestId;
 
       startStage(requestId, "response_formatting");
@@ -453,7 +508,7 @@ async function bootstrap() {
    */
   app.post("/query", requireAuth, async (req, res) => {
     const requestId = randomUUID();
-    const { question } = req.body;
+    const { question, dbId } = req.body;
     const auditConfig = getAuditConfig();
 
     beginAudit(requestId, "/query", typeof question === "string" ? question : undefined);
@@ -476,12 +531,24 @@ async function bootstrap() {
       return res.status(400).json(buildRequestError("Missing 'question' in request body."));
     }
 
-    stageSuccess(requestId, "input_validation", { questionLength: question.length });
+    const resolvedDatabase = resolveDatabaseOrError(dbId);
+    if (!resolvedDatabase.database) {
+      stageError(requestId, "input_validation", resolvedDatabase.error.detail || resolvedDatabase.error.error || "Invalid database.");
+      startStage(requestId, "request_completed");
+      stageError(requestId, "request_completed", "Request validation failed.");
+      await completeAudit(requestId, "error", {
+        code: "BAD_REQUEST",
+        endpoint: "/query",
+      });
+      return res.status(resolvedDatabase.status).json(resolvedDatabase.error);
+    }
+
+    stageSuccess(requestId, "input_validation", { questionLength: question.length, dbId: resolvedDatabase.database.dbId });
 
     res.setHeader("x-request-id", requestId);
 
     try {
-      const result = await runAgentWithHooks(question, createAgentAuditHooks(requestId));
+      const result = await runAgentWithHooks(question, resolvedDatabase.database.dbId, createAgentAuditHooks(requestId));
       result.requestId = requestId;
 
       startStage(requestId, "response_formatting");
@@ -571,7 +638,7 @@ async function bootstrap() {
    */
   app.post("/query/stream", requireAuth, async (req: AuthenticatedRequest, res) => {
     const requestId = randomUUID();
-    const { question } = req.body;
+    const { question, dbId } = req.body;
     const user = req.user;
 
     beginAudit(requestId, "/query/stream", typeof question === "string" ? question : undefined);
@@ -594,12 +661,24 @@ async function bootstrap() {
       return res.status(400).json(buildRequestError("Missing 'question' in request body."));
     }
 
-    stageSuccess(requestId, "input_validation", { questionLength: question.length });
+    const resolvedDatabase = resolveDatabaseOrError(dbId);
+    if (!resolvedDatabase.database) {
+      stageError(requestId, "input_validation", resolvedDatabase.error.detail || resolvedDatabase.error.error || "Invalid database.");
+      startStage(requestId, "request_completed");
+      stageError(requestId, "request_completed", "Request validation failed.");
+      await completeAudit(requestId, "error", {
+        code: "BAD_REQUEST",
+        endpoint: "/query/stream",
+      });
+      return res.status(resolvedDatabase.status).json(resolvedDatabase.error);
+    }
+
+    stageSuccess(requestId, "input_validation", { questionLength: question.length, dbId: resolvedDatabase.database.dbId });
     res.setHeader("x-request-id", requestId);
 
     const streamResult = user?.role === "tech_team"
-      ? await streamReviewFlow(question, user.userId, res, createAgentAuditHooks(requestId))
-      : await streamAgent(question, res, createAgentAuditHooks(requestId));
+      ? await streamReviewFlow(question, user.userId, resolvedDatabase.database.dbId, res, createAgentAuditHooks(requestId))
+      : await streamAgent(question, resolvedDatabase.database.dbId, res, createAgentAuditHooks(requestId));
 
     startStage(requestId, "request_completed");
     if (streamResult?.status === "success") {

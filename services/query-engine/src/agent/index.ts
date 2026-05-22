@@ -96,11 +96,11 @@ function getNextNode(update: Record<string, any>): string | undefined {
   return undefined;
 }
 
-async function executeAgent(question: string, hooks?: AgentExecutionHooks): Promise<AgentResult> {
-  const accumulated: Record<string, any> = { question };
+async function executeAgent(question: string, dbId: string, hooks?: AgentExecutionHooks): Promise<AgentResult> {
+  const accumulated: Record<string, any> = { question, dbId };
 
   hooks?.onNodeStart?.("retrieve");
-  const stream = await agent.stream({ question }, { streamMode: "updates" });
+  const stream = await agent.stream({ question, dbId }, { streamMode: "updates" });
 
   for await (const chunk of stream) {
     for (const [nodeName, stateUpdate] of Object.entries(chunk)) {
@@ -176,17 +176,17 @@ async function executeAgent(question: string, hooks?: AgentExecutionHooks): Prom
  * The agent will self-correct on validation/execution errors up to the configured retry limit.
  * 
  */
-export async function runAgent(question: string): Promise<AgentResult> {
+export async function runAgent(question: string, dbId: string): Promise<AgentResult> {
   console.log(`\n🤖 [Agent] Starting for: "${question}"`);
-  const result = await executeAgent(question);
+  const result = await executeAgent(question, dbId);
 
   console.log(`🤖 [Agent] Done. Status: ${result.status} | Retries: ${result.retryCount}`);
   return result;
 }
 
-export async function runAgentWithHooks(question: string, hooks?: AgentExecutionHooks): Promise<AgentResult> {
+export async function runAgentWithHooks(question: string, dbId: string, hooks?: AgentExecutionHooks): Promise<AgentResult> {
   console.log(`\n🤖 [Agent] Starting for: "${question}"`);
-  const result = await executeAgent(question, hooks);
+  const result = await executeAgent(question, dbId, hooks);
   console.log(`🤖 [Agent] Done. Status: ${result.status} | Retries: ${result.retryCount}`);
   return result;
 }
@@ -200,7 +200,7 @@ export async function runAgentWithHooks(question: string, hooks?: AgentExecution
  *   - done:       { ...finalResult }        — full final result with rows
  *   - error:      { error: string }         — unexpected failure
  */
-export async function streamAgent(question: string, res: Response, hooks?: AgentExecutionHooks): Promise<AgentResult | null> {
+export async function streamAgent(question: string, dbId: string, res: Response, hooks?: AgentExecutionHooks): Promise<AgentResult | null> {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -213,7 +213,7 @@ export async function streamAgent(question: string, res: Response, hooks?: Agent
   };
 
   try {
-    const finalResult = await executeAgent(question, {
+    const finalResult = await executeAgent(question, dbId, {
       onNodeStart: hooks?.onNodeStart,
       onNodeEnd: (event) => {
         hooks?.onNodeEnd?.(event);

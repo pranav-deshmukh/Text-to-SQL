@@ -8,6 +8,9 @@ export const AgentState = Annotation.Root({
   /** Original user question */
   question: Annotation<string>(),
 
+  /** Selected database identifier */
+  dbId: Annotation<string>(),
+
   /** RAG-retrieved schema context string */
   context: Annotation<string>({ reducer: (_, b) => b, default: () => "" }),
 

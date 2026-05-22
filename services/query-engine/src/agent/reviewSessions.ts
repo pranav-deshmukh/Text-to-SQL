@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 export interface ReviewSession {
   threadId: string;
   userId: string;
+  dbId: string;
   question: string;
   generatedSql: string;
   editableSql: string;

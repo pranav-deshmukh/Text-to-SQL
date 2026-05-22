@@ -59,7 +59,7 @@ const MAX_BACKFILL = 5;
  * Only backfills from high-scoring chunks (>0.60) and caps at 5 to prevent prompt bloat.
  * Uses O(1) point lookups — negligible latency even with 1000s of tables.
  */
-async function backfillMissingTableChunks(results: SearchResult[]): Promise<SearchResult[]> {
+async function backfillMissingTableChunks(collectionName: string, results: SearchResult[]): Promise<SearchResult[]> {
   const referencedTables = new Set<string>();
   for (const result of results) {
     if (result.score >= BACKFILL_SCORE_THRESHOLD) {
@@ -79,7 +79,7 @@ async function backfillMissingTableChunks(results: SearchResult[]): Promise<Sear
   const backfilled: SearchResult[] = [];
 
   for (const tableName of missingTables.slice(0, MAX_BACKFILL)) {
-    const doc = await getDocumentById(`table:${tableName}`);
+    const doc = await getDocumentById(collectionName, `table:${tableName}`);
     if (doc) {
       console.log(`[Retriever] ⬆️ Backfilled table definition: ${tableName}`);
       backfilled.push(doc);
@@ -91,14 +91,15 @@ async function backfillMissingTableChunks(results: SearchResult[]): Promise<Sear
 
 export async function retrieveContextDetailed(
   question: string,
+  collectionName: string,
   topK: number = DEFAULT_TOP_K,
   scoreThreshold: number = DEFAULT_SCORE_THRESHOLD
 ): Promise<RetrievedContextDetailed> {
-  const raw: SearchResult[] = await searchDocuments(question, topK);
+  const raw: SearchResult[] = await searchDocuments(collectionName, question, topK);
   let results = raw.filter((r) => r.score >= scoreThreshold);
 
   // Backfill: if we got a profile/relationship for a table but not its definition, fetch it
-  results = await backfillMissingTableChunks(results);
+  results = await backfillMissingTableChunks(collectionName, results);
 
   const groupedResults = new Map<string, SearchResult[]>();
   for (const result of results) {
@@ -149,8 +150,9 @@ export async function retrieveContextDetailed(
 
 export async function retrieveContext(
   question: string,
+  collectionName: string,
   topK: number = DEFAULT_TOP_K
 ): Promise<RetrievedContext> {
-  const { schemaContext, tables } = await retrieveContextDetailed(question, topK);
+  const { schemaContext, tables } = await retrieveContextDetailed(question, collectionName, topK);
   return { schemaContext, tables };
 }

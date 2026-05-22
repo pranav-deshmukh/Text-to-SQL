@@ -4,6 +4,7 @@ import { callLLM } from "../llm/gemini";
 import { validateSQL } from "../validator/sqlValidator";
 import { executeSQL } from "../executor/sqlExecutor";
 import { buildGenerationError } from "../errors/queryError";
+import { getDatabaseConfig } from "../config/dbRegistry";
 import type { AgentStateType } from "./state";
 
 /**
@@ -16,7 +17,12 @@ export async function retrieveNode(state: AgentStateType): Promise<Partial<Agent
     ? `${state.question} (context: ${state.errorHistory[state.errorHistory.length - 1]})`
     : state.question;
 
-  const ragResult = await retrieveContext(query);
+  const database = getDatabaseConfig(state.dbId);
+  if (!database) {
+    throw new Error(`Unknown database: ${state.dbId}`);
+  }
+
+  const ragResult = await retrieveContext(query, database.qdrantCollection);
 
   console.log(`🤖 [Agent:retrieve] Tables: ${ragResult.tables.map(t => t.tableName).join(", ")}`);
 
@@ -79,9 +85,12 @@ export async function generateNode(state: AgentStateType): Promise<Partial<Agent
  * On failure, records the error and increments retry count.
  */
 export async function validateNode(state: AgentStateType): Promise<Partial<AgentStateType>> {
-  // Need the connection string — get from env directly since it's available at module scope
-  const connStr = process.env.DB_CONNECTION_STRING || "";
-  const result = await validateSQL(state.sql, connStr);
+  const database = getDatabaseConfig(state.dbId);
+  if (!database) {
+    throw new Error(`Unknown database: ${state.dbId}`);
+  }
+
+  const result = await validateSQL(state.sql, state.dbId, database.connectionString);
 
   if (!result.valid) {
     console.warn(`🤖 [Agent:validate] FAILED: ${result.error}`);
@@ -102,7 +111,7 @@ export async function validateNode(state: AgentStateType): Promise<Partial<Agent
  */
 export async function executeNode(state: AgentStateType): Promise<Partial<AgentStateType>> {
   try {
-    const data = await executeSQL(state.sql);
+    const data = await executeSQL(state.sql, state.dbId);
     console.log(`🤖 [Agent:execute] ✅ ${data.rowCount} rows in ${data.executionTimeMs}ms`);
     return {
       result: data.rows,

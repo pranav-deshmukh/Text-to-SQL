@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuditLogsResponse } from '../Models/audit-log';
+import { DatabaseListResponse } from '../Models/database';
 import { QueryRequest } from '../Models/query-request';
 import { QueryResponse } from '../Models/query-response';
 import { AuthService } from './auth-service';
@@ -48,8 +49,12 @@ export class QueryService {
     private readonly authService: AuthService,
   ) {}
 
-  initiateQuestion(question: string): Observable<QueryResponse> {
-    const payload: QueryRequest = { question };
+  getDatabases(): Observable<DatabaseListResponse> {
+    return this.http.get<DatabaseListResponse>(`${this.apiUrl}/databases`);
+  }
+
+  initiateQuestion(question: string, dbId: string): Observable<QueryResponse> {
+    const payload: QueryRequest = { question, dbId };
     return this.http.post<QueryResponse>(`${this.apiUrl}/query/initiate`, payload);
   }
 
@@ -57,8 +62,8 @@ export class QueryService {
     return this.http.post<QueryResponse>(`${this.apiUrl}/query/resume`, { threadId, approvedSQL });
   }
 
-  submitQuestion(question: string): Observable<QueryResponse> {
-    const payload: QueryRequest = { question };
+  submitQuestion(question: string, dbId: string): Observable<QueryResponse> {
+    const payload: QueryRequest = { question, dbId };
     return this.http.post<QueryResponse>(`${this.apiUrl}/query`, payload);
   }
 
@@ -76,8 +81,8 @@ export class QueryService {
     return this.http.get<AuditLogsResponse>(`${this.apiUrl}/logs/api?${params.toString()}`);
   }
 
-  async streamAgentQuestion(question: string, handlers: AgentStreamHandlers): Promise<void> {
-    const payload: QueryRequest = { question };
+  async streamAgentQuestion(question: string, dbId: string, handlers: AgentStreamHandlers): Promise<void> {
+    const payload: QueryRequest = { question, dbId };
     const token = this.authService.token;
     const response = await fetch(`${this.apiUrl}/query/stream`, {
       method: 'POST',

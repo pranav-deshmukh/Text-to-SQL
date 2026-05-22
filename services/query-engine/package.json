@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "seed": "tsx src/rag/seed.ts",
+    "seed-all": "tsx src/rag/seed.ts --db all",
     "build": "tsc",
     "start": "node dist/index.js"
   },

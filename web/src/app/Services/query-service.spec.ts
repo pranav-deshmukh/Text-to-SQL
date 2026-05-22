@@ -22,11 +22,11 @@ describe('QueryService', () => {
   });
 
   it('posts the question to the query endpoint', () => {
-    service.submitQuestion('Show total AUM by advisor').subscribe();
+    service.submitQuestion('Show total AUM by advisor', 'default').subscribe();
 
     const request = httpMock.expectOne(`${environment.apiUrl}/query`);
     expect(request.request.method).toBe('POST');
-    expect(request.request.body).toEqual({ question: 'Show total AUM by advisor' });
+    expect(request.request.body).toEqual({ question: 'Show total AUM by advisor', dbId: 'default' });
 
     request.flush({ sql: 'SELECT 1' });
   });

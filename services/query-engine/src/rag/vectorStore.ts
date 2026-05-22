@@ -6,40 +6,50 @@ import { GoogleGenAI } from "@google/genai";
  * Abstract interface so we can swap providers later.
  */
 
-const COLLECTION_NAME = "sql_context";
 const EMBEDDING_MODEL = "gemini-embedding-001";
 const VECTOR_SIZE = 3072;
 
 let qdrant: QdrantClient | null = null;
 let ai: GoogleGenAI | null = null;
 
-export async function initVectorStore(): Promise<void> {
-  const project = process.env.GOOGLE_CLOUD_PROJECT;
-  if (project) {
-    const location = process.env.GOOGLE_CLOUD_LOCATION ?? 'us-central1';
-    ai = new GoogleGenAI({ vertexai: true, project, location });
-  } else {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("Set GOOGLE_CLOUD_PROJECT (Vertex) or GEMINI_API_KEY for embeddings");
-    ai = new GoogleGenAI({ apiKey });
+async function ensureClients(): Promise<{ qdrant: QdrantClient; ai: GoogleGenAI }> {
+  if (!ai) {
+    const project = process.env.GOOGLE_CLOUD_PROJECT;
+    if (project) {
+      const location = process.env.GOOGLE_CLOUD_LOCATION ?? "us-central1";
+      ai = new GoogleGenAI({ vertexai: true, project, location });
+    } else {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("Set GOOGLE_CLOUD_PROJECT (Vertex) or GEMINI_API_KEY for embeddings");
+      ai = new GoogleGenAI({ apiKey });
+    }
   }
-  qdrant = new QdrantClient({
-    url: process.env.QDRANT_URL || "http://localhost:6333",
-  });
+
+  if (!qdrant) {
+    qdrant = new QdrantClient({
+      url: process.env.QDRANT_URL || "http://localhost:6333",
+    });
+  }
+
+  return { qdrant, ai };
+}
+
+export async function initVectorStore(collectionName: string): Promise<void> {
+  const { qdrant } = await ensureClients();
 
   // Create collection if it doesn't exist
   const collections = await qdrant.getCollections();
-  const exists = collections.collections.some((c) => c.name === COLLECTION_NAME);
+  const exists = collections.collections.some((c) => c.name === collectionName);
 
   if (!exists) {
-    await qdrant.createCollection(COLLECTION_NAME, {
+    await qdrant.createCollection(collectionName, {
       vectors: { size: VECTOR_SIZE, distance: "Cosine" },
     });
-    console.log(`✅ Created Qdrant collection "${COLLECTION_NAME}"`);
+    console.log(`✅ Created Qdrant collection "${collectionName}"`);
   }
 
-  const info = await qdrant.getCollection(COLLECTION_NAME);
-  console.log(`✅ Qdrant collection "${COLLECTION_NAME}" ready (${info.points_count} points)`);
+  const info = await qdrant.getCollection(collectionName);
+  console.log(`✅ Qdrant collection "${collectionName}" ready (${info.points_count} points)`);
 }
 
 function stablePointId(input: string): number {
@@ -57,7 +67,7 @@ function stablePointId(input: string): number {
  * Generate embedding for a text using Gemini.
  */
 async function embed(text: string): Promise<number[]> {
-  if (!ai) throw new Error("Vector store not initialized");
+  const { ai } = await ensureClients();
   const result = await ai.models.embedContent({
     model: EMBEDDING_MODEL,
     contents: text,
@@ -74,8 +84,8 @@ export interface DocumentToStore {
 /**
  * Add documents to Qdrant. Upserts (safe to re-run).
  */
-export async function addDocuments(docs: DocumentToStore[]): Promise<void> {
-  if (!qdrant) throw new Error("Vector store not initialized");
+export async function addDocuments(collectionName: string, docs: DocumentToStore[]): Promise<void> {
+  const { qdrant } = await ensureClients();
 
   // Generate embeddings for all docs
   const points = await Promise.all(
@@ -90,7 +100,7 @@ export async function addDocuments(docs: DocumentToStore[]): Promise<void> {
     }))
   );
 
-  await qdrant.upsert(COLLECTION_NAME, { points });
+  await qdrant.upsert(collectionName, { points });
 }
 
 export interface SearchResult {
@@ -115,14 +125,15 @@ function toSearchMetadata(
  * Search for the top-K most relevant documents given a query.
  */
 export async function searchDocuments(
+  collectionName: string,
   query: string,
   topK: number = 5
 ): Promise<SearchResult[]> {
-  if (!qdrant) throw new Error("Vector store not initialized");
+  const { qdrant } = await ensureClients();
 
   const queryVector = await embed(query);
 
-  const results = await qdrant.search(COLLECTION_NAME, {
+  const results = await qdrant.search(collectionName, {
     vector: queryVector,
     limit: topK,
     with_payload: true,
@@ -141,12 +152,12 @@ export async function searchDocuments(
  * Uses the same stablePointId hash as addDocuments.
  * O(1) lookup — used to backfill table definitions when only profiles were retrieved.
  */
-export async function getDocumentById(docId: string): Promise<SearchResult | null> {
-  if (!qdrant) throw new Error("Vector store not initialized");
+export async function getDocumentById(collectionName: string, docId: string): Promise<SearchResult | null> {
+  const { qdrant } = await ensureClients();
 
   try {
     const pointId = stablePointId(docId);
-    const response = await qdrant.retrieve(COLLECTION_NAME, {
+    const response = await qdrant.retrieve(collectionName, {
       ids: [pointId],
       with_payload: true,
     });
@@ -171,8 +182,8 @@ export async function getDocumentById(docId: string): Promise<SearchResult | nul
 /**
  * Get document count.
  */
-export async function getDocumentCount(): Promise<number> {
-  if (!qdrant) throw new Error("Vector store not initialized");
-  const info = await qdrant.getCollection(COLLECTION_NAME);
+export async function getDocumentCount(collectionName: string): Promise<number> {
+  const { qdrant } = await ensureClients();
+  const info = await qdrant.getCollection(collectionName);
   return info.points_count ?? 0;
 }

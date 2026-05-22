@@ -1,21 +1,35 @@
 <div class="page-shell">
   <header class="topbar">
-    <div class="content-width topbar-inner">
+    <div class="content-width topbar-width topbar-inner">
       <div class="brand-group">
         <div class="brand-mark">Q</div>
-        <div>
+        <div class="brand-copy">
           <div class="brand-title">QueryAssist</div>
           <div class="brand-subtitle">LPL Financial — Operations Query Tool</div>
         </div>
       </div>
 
       <div class="topbar-actions">
+        <div class="db-selector">
+          <label class="db-selector-label" for="database-select">Database:</label>
+          <select
+            id="database-select"
+            [(ngModel)]="selectedDbId"
+            [disabled]="loading || reviewLoading || !!pendingReview || databasesLoading"
+            class="db-dropdown"
+          >
+            <option value="" disabled>{{ databasesLoading ? 'Loading databases...' : 'Select a database' }}</option>
+            <option *ngFor="let db of databases" [value]="db.dbId">
+              {{ db.displayName }}
+            </option>
+          </select>
+        </div>
         <div class="mode-badge" [class.mode-badge-tech]="isTechTeam">
           {{ currentModeLabel }}
         </div>
-        <div class="status-badge">
+        <div class="status-badge" *ngIf="selectedDbId">
           <span class="status-dot"></span>
-          <span>MS SQL Connected</span>
+          <span>{{ getSelectedDbName() }} Connected</span>
         </div>
         <span class="user-chip">{{ currentUsername }}</span>
         <a *ngIf="showLogsButton && isTechTeam" class="logs-link" [routerLink]="['/logs']">View Logs</a>
@@ -33,7 +47,7 @@
           {{ isTechTeam ? 'Review generated SQL, inspect context, and execute safely.' : 'Natural language → validated results, with SQL hidden by default.' }}
         </p>
 
-        <div class="suggestion-list">
+        <div class="suggestion-list" *ngIf="selectedDbId">
           <button
             *ngFor="let suggestion of suggestions"
             type="button"
@@ -91,7 +105,7 @@
           type="text"
           name="query"
           [(ngModel)]="input"
-          [placeholder]="pendingReview ? 'Finish or cancel the SQL review before starting another question...' : 'Ask a question about your data...'"
+          [placeholder]="pendingReview ? 'Finish or cancel the SQL review before starting another question...' : !selectedDbId ? 'Select a database before asking a question...' : 'Ask a question about your data...'"
           [disabled]="!canSubmit"
         />
         <button *ngIf="input" type="button" class="clear-button" (click)="input = ''">×</button>
