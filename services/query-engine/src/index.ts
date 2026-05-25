@@ -9,10 +9,24 @@ import { retrieveContextDetailed } from "./rag/retriever";
 import { registerValidator } from "./validator/sqlValidator";
 import { AgentExecutionHooks, runAgentWithHooks, streamAgent } from "./agent";
 import { initiateReviewFlow, resumeReviewFlow, getReviewStatus, streamReviewFlow } from "./agent/reviewFlow";
-import { cancelReviewSession, getReviewSession } from "./agent/reviewSessions";
+import { cancelReviewSession } from "./agent/reviewSessions";
+import { getReviewSession, updateReviewSession } from "./agent/reviewSessions";
 import { requireAuth, requireRole, type AuthenticatedRequest } from "./auth/middleware";
 import { createAuthToken } from "./auth/token";
 import { authenticateUser, createUser, registerAuthStore } from "./auth/users";
+import {
+  archiveUserConversation,
+  createUserConversation,
+  getUserConversation,
+  listUserConversations,
+  persistAgentError,
+  persistAgentSuccess,
+  persistAssistantResult,
+  persistReviewDraft,
+  persistUserQuestion,
+  updatePersistedReviewMessage,
+} from "./chat/service";
+import { registerChatStore } from "./chat/repository";
 import { buildInternalError, buildRequestError } from "./errors/queryError";
 import { getAgentRetryConfig } from "./config/appConfig";
 import { getAuditConfig } from "./config/auditConfig";
@@ -93,6 +107,14 @@ function resolveDatabaseOrError(dbId: unknown) {
   return { database, status: 200 as const };
 }
 
+function resolveConversationId(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function isConversationNotFoundError(error: unknown): boolean {
+  return error instanceof Error && error.message === "Conversation not found.";
+}
+
 async function bootstrap() {
   const databases = getRegisteredDatabases();
   if (databases.length === 0) {
@@ -108,6 +130,7 @@ async function bootstrap() {
   }
 
   await registerAuthStore();
+  await registerChatStore();
   await syncAuditDatabases(databases);
 
   // --- Routes ---
@@ -193,6 +216,63 @@ async function bootstrap() {
     return res.json({ user: req.user });
   });
 
+  app.get("/chats", requireAuth, async (req: AuthenticatedRequest, res) => {
+    if (!req.user) {
+      return res.status(401).json(buildRequestError("Authentication required."));
+    }
+
+    const conversations = await listUserConversations(req.user.userId);
+    return res.json({ conversations });
+  });
+
+  app.post("/chats", requireAuth, async (req: AuthenticatedRequest, res) => {
+    if (!req.user) {
+      return res.status(401).json(buildRequestError("Authentication required."));
+    }
+
+    const conversation = await createUserConversation(
+      req.user.userId,
+      typeof req.body?.dbId === "string" ? req.body.dbId : null,
+      typeof req.body?.title === "string" ? req.body.title : undefined,
+    );
+
+    return res.status(201).json({ conversation });
+  });
+
+  app.get("/chats/:conversationId", requireAuth, async (req: AuthenticatedRequest, res) => {
+    if (!req.user) {
+      return res.status(401).json(buildRequestError("Authentication required."));
+    }
+
+    const conversation = await getUserConversation(req.user.userId, String(req.params.conversationId));
+    if (!conversation) {
+      return res.status(404).json({
+        ...buildRequestError("Conversation not found."),
+        error: "Conversation not found.",
+        code: "CHAT_NOT_FOUND",
+      });
+    }
+
+    return res.json({ conversation });
+  });
+
+  app.delete("/chats/:conversationId", requireAuth, async (req: AuthenticatedRequest, res) => {
+    if (!req.user) {
+      return res.status(401).json(buildRequestError("Authentication required."));
+    }
+
+    const archived = await archiveUserConversation(req.user.userId, String(req.params.conversationId));
+    if (!archived) {
+      return res.status(404).json({
+        ...buildRequestError("Conversation not found."),
+        error: "Conversation not found.",
+        code: "CHAT_NOT_FOUND",
+      });
+    }
+
+    return res.status(204).send();
+  });
+
   /**
    * POST /rag-inspect
    * Body: { question: string, topK?: number }
@@ -240,6 +320,7 @@ async function bootstrap() {
   app.post("/query/initiate", requireAuth, async (req: AuthenticatedRequest, res) => {
     const requestId = randomUUID();
     const { question, dbId } = req.body ?? {};
+    const conversationId = resolveConversationId(req.body?.conversationId);
     const user = req.user;
     const auditConfig = getAuditConfig();
     const requestedDbId = typeof dbId === "string" ? dbId : undefined;
@@ -307,9 +388,18 @@ async function bootstrap() {
     res.setHeader("x-request-id", requestId);
 
     try {
+      const persistedTurn = await persistUserQuestion(user.userId, question, resolvedDatabase.database.dbId, conversationId);
+      const persistedConversationId = persistedTurn.conversation.conversationId;
+
       if (user.role === "tech_team") {
         startStage(requestId, "context_retrieval");
         const reviewDraft = await initiateReviewFlow(question, user.userId, resolvedDatabase.database.dbId);
+        const persistedReviewMessage = await persistReviewDraft(persistedConversationId, reviewDraft);
+        updateReviewSession(reviewDraft.threadId, (session) => ({
+          ...session,
+          conversationId: persistedConversationId,
+          assistantMessageId: persistedReviewMessage.messageId,
+        }));
         stageSuccess(requestId, "context_retrieval", {
           retrievedTables: reviewDraft.retrievedTables,
           dbId: resolvedDatabase.database.dbId,
@@ -334,6 +424,7 @@ async function bootstrap() {
 
         return res.json({
           requestId,
+          conversationId: persistedConversationId,
           ...reviewDraft,
         });
       }
@@ -348,6 +439,7 @@ async function bootstrap() {
       });
 
       if (result.status === "success") {
+        await persistAgentSuccess(persistedConversationId, result);
         startStage(requestId, "request_completed");
         stageSuccess(requestId, "request_completed", {
           rowCount: result.data?.rowCount,
@@ -363,6 +455,7 @@ async function bootstrap() {
 
         return res.json({
           requestId,
+          conversationId: persistedConversationId,
           status: result.status,
           question: result.question,
           sql: result.sql,
@@ -375,6 +468,8 @@ async function bootstrap() {
           finalError: null,
         });
       }
+
+      await persistAgentError(persistedConversationId, result);
 
       startStage(requestId, "request_completed");
       stageError(requestId, "request_completed", result.detail || result.error || "Request ended with failure", {
@@ -392,6 +487,7 @@ async function bootstrap() {
 
       return res.status(result.phase === "generation" ? 422 : 400).json({
         requestId,
+        conversationId: persistedConversationId,
         status: result.status,
         error: result.error,
         detail: result.detail,
@@ -406,6 +502,14 @@ async function bootstrap() {
         finalError: result.finalError,
       });
     } catch (err: any) {
+      if (isConversationNotFoundError(err)) {
+        return res.status(404).json({
+          ...buildRequestError(err.message),
+          error: err.message,
+          code: "CHAT_NOT_FOUND",
+        });
+      }
+
       console.error("🤖 [Role Query] Unexpected error:", err.message);
 
       startStage(requestId, "request_completed");
@@ -426,15 +530,9 @@ async function bootstrap() {
     const { threadId, approvedSQL } = req.body ?? {};
     const user = req.user;
     const auditConfig = getAuditConfig();
-    const reviewSession = user && typeof threadId === "string" ? getReviewSession(threadId, user.userId) : null;
-    const reviewDatabase = reviewSession ? getDatabaseConfig(reviewSession.dbId) : undefined;
+    const existingSession = user && typeof threadId === "string" ? getReviewSession(threadId, user.userId) : null;
 
-    beginAudit(requestId, "/query/resume", typeof approvedSQL === "string" ? approvedSQL : undefined, {
-      dbId: reviewSession?.dbId,
-      dbDisplayName: reviewDatabase?.displayName,
-      userId: user?.userId,
-      userRole: user?.role,
-    });
+    beginAudit(requestId, "/query/resume", typeof approvedSQL === "string" ? approvedSQL : undefined);
     startStage(requestId, "request_received");
     stageSuccess(requestId, "request_received", {
       endpoint: "/query/resume",
@@ -477,6 +575,34 @@ async function bootstrap() {
 
     try {
       const result = await resumeReviewFlow(threadId, user.userId, approvedSQL);
+      const persistedConversationId = existingSession?.conversationId;
+      const assistantMessageId = existingSession?.assistantMessageId;
+
+      if (persistedConversationId && assistantMessageId) {
+        if (result.status === "awaiting_review") {
+          await updatePersistedReviewMessage(persistedConversationId, assistantMessageId, {
+            generatedSQL: result.generatedSQL,
+            editableSQL: result.editableSQL,
+            status: "awaiting_review",
+            retrievedTables: result.retrievedTables,
+            schemaContext: result.schemaContext,
+            promptPreview: result.promptPreview,
+            lastError: result.lastError || null,
+          });
+        } else {
+          await updatePersistedReviewMessage(persistedConversationId, assistantMessageId, {
+            sql: result.sql,
+            editableSQL: result.sql,
+            status: "success",
+            error: null,
+            detail: null,
+            result: result.data,
+            retrievedTables: result.retrievedTables,
+            lastError: null,
+            completedAt: new Date().toISOString(),
+          });
+        }
+      }
 
       if (result.status === "awaiting_review") {
         startStage(requestId, "sql_safety_validation");
@@ -497,7 +623,7 @@ async function bootstrap() {
           appEnv: auditConfig.appEnv,
         });
 
-        return res.status(200).json({ requestId, ...result });
+        return res.status(200).json({ requestId, conversationId: persistedConversationId, ...result });
       }
 
       startStage(requestId, "sql_execution");
@@ -519,7 +645,7 @@ async function bootstrap() {
         appEnv: auditConfig.appEnv,
       });
 
-      return res.json({ requestId, ...result });
+      return res.json({ requestId, conversationId: persistedConversationId, ...result });
     } catch (err: any) {
       startStage(requestId, "request_completed");
       stageError(requestId, "request_completed", err?.message || String(err), {
@@ -656,7 +782,11 @@ async function bootstrap() {
       });
     }
 
-    return res.json(result);
+    const session = getReviewSession(String(req.params.threadId), user.userId);
+    return res.json({
+      ...result,
+      conversationId: session?.conversationId,
+    });
   });
 
   /**
@@ -664,11 +794,12 @@ async function bootstrap() {
    * Body: { question: string }
     * Runs the LangGraph agent with self-correction up to the configured retry limit.
    */
-  app.post("/query", requireAuth, async (req, res) => {
+  app.post("/query", requireAuth, async (req: AuthenticatedRequest, res) => {
     const requestId = randomUUID();
     const { question, dbId } = req.body;
+    const conversationId = resolveConversationId(req.body?.conversationId);
     const auditConfig = getAuditConfig();
-    const user = (req as AuthenticatedRequest).user;
+    const user = req.user;
     const requestedDbId = typeof dbId === "string" ? dbId : undefined;
     const requestedDatabase = requestedDbId ? getDatabaseConfig(requestedDbId) : undefined;
 
@@ -682,6 +813,7 @@ async function bootstrap() {
     stageSuccess(requestId, "request_received", {
       endpoint: "/query",
       method: "POST",
+      role: user?.role,
     });
 
     startStage(requestId, "input_validation");
@@ -714,6 +846,22 @@ async function bootstrap() {
     res.setHeader("x-request-id", requestId);
 
     try {
+      if (!user) {
+        startStage(requestId, "request_completed");
+        stageError(requestId, "request_completed", "Request rejected: missing authenticated user.");
+        await completeAudit(requestId, "error", {
+          endpoint: "/query",
+          code: "AUTH_REQUIRED",
+        });
+        return res.status(401).json({
+          ...buildRequestError("Authentication required."),
+          error: "Authentication required.",
+          code: "AUTH_REQUIRED",
+        });
+      }
+
+      const persistedTurn = await persistUserQuestion(user.userId, question, resolvedDatabase.database.dbId, conversationId);
+      const persistedConversationId = persistedTurn.conversation.conversationId;
       const result = await runAgentWithHooks(question, resolvedDatabase.database.dbId, createAgentAuditHooks(requestId));
       result.requestId = requestId;
 
@@ -724,6 +872,7 @@ async function bootstrap() {
       });
 
       if (result.status === "success") {
+        await persistAgentSuccess(persistedConversationId, result);
         startStage(requestId, "request_completed");
         stageSuccess(requestId, "request_completed", {
           rowCount: result.data?.rowCount,
@@ -739,6 +888,7 @@ async function bootstrap() {
 
         return res.json({
           requestId,
+          conversationId: persistedConversationId,
           status: result.status,
           question: result.question,
           sql: result.sql,
@@ -751,6 +901,7 @@ async function bootstrap() {
           finalError: null,
         });
       } else {
+        await persistAgentError(persistedConversationId, result);
         startStage(requestId, "request_completed");
         stageError(requestId, "request_completed", result.detail || result.error || "Request ended with failure", {
           phase: result.phase,
@@ -767,6 +918,7 @@ async function bootstrap() {
 
         return res.status(result.phase === "generation" ? 422 : 400).json({
           requestId,
+          conversationId: persistedConversationId,
           status: result.status,
           error: result.error,
           detail: result.detail,
@@ -782,6 +934,14 @@ async function bootstrap() {
         });
       }
     } catch (err: any) {
+      if (isConversationNotFoundError(err)) {
+        return res.status(404).json({
+          ...buildRequestError(err.message),
+          error: err.message,
+          code: "CHAT_NOT_FOUND",
+        });
+      }
+
       console.error("🤖 [Agent] Unexpected error:", err.message);
 
       startStage(requestId, "request_completed");
@@ -805,6 +965,7 @@ async function bootstrap() {
   app.post("/query/stream", requireAuth, async (req: AuthenticatedRequest, res) => {
     const requestId = randomUUID();
     const { question, dbId } = req.body;
+    const conversationId = resolveConversationId(req.body?.conversationId);
     const user = req.user;
 
     const requestedDbId = typeof dbId === "string" ? dbId : undefined;
@@ -850,9 +1011,66 @@ async function bootstrap() {
     stageSuccess(requestId, "input_validation", { questionLength: question.length, dbId: resolvedDatabase.database.dbId });
     res.setHeader("x-request-id", requestId);
 
+    if (!user) {
+      return res.status(401).json({
+        ...buildRequestError("Authentication required."),
+        error: "Authentication required.",
+        code: "AUTH_REQUIRED",
+      });
+    }
+
+    let persistedConversationId: string;
+    try {
+      const persistedTurn = await persistUserQuestion(user.userId, question, resolvedDatabase.database.dbId, conversationId);
+      persistedConversationId = persistedTurn.conversation.conversationId;
+    } catch (error) {
+      if (isConversationNotFoundError(error)) {
+        return res.status(404).json({
+          ...buildRequestError("Conversation not found."),
+          error: "Conversation not found.",
+          code: "CHAT_NOT_FOUND",
+        });
+      }
+
+      throw error;
+    }
+
     const streamResult = user?.role === "tech_team"
-      ? await streamReviewFlow(question, user.userId, resolvedDatabase.database.dbId, res, createAgentAuditHooks(requestId))
-      : await streamAgent(question, resolvedDatabase.database.dbId, res, createAgentAuditHooks(requestId));
+      ? await streamReviewFlow(
+        question,
+        user.userId,
+        resolvedDatabase.database.dbId,
+        res,
+        createAgentAuditHooks(requestId),
+        { conversationId: persistedConversationId },
+      )
+      : await streamAgent(
+        question,
+        resolvedDatabase.database.dbId,
+        res,
+        createAgentAuditHooks(requestId),
+        { conversationId: persistedConversationId },
+      );
+
+    if (streamResult?.status === "success") {
+      await persistAgentSuccess(persistedConversationId, streamResult);
+    } else if (streamResult?.status === "awaiting_review") {
+      const persistedReviewMessage = await persistReviewDraft(persistedConversationId, streamResult);
+      updateReviewSession(streamResult.threadId, (session) => ({
+        ...session,
+        conversationId: persistedConversationId,
+        assistantMessageId: persistedReviewMessage.messageId,
+      }));
+    } else {
+      await persistAssistantResult(persistedConversationId, {
+        error: user.role === "tech_team" ? "Unable to prepare SQL review draft." : "Unable to complete the query.",
+        detail: user.role === "tech_team"
+          ? "The review draft could not be generated."
+          : "The streaming request ended before a final result was produced.",
+        messageType: "error",
+        status: "error",
+      });
+    }
 
     startStage(requestId, "request_completed");
     if (streamResult?.status === "success") {

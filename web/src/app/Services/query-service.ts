@@ -55,21 +55,21 @@ export class QueryService {
     return this.http.get<DatabaseListResponse>(`${this.apiUrl}/databases`);
   }
 
-  initiateQuestion(question: string, dbId: string): Observable<QueryResponse> {
-    const payload: QueryRequest = { question, dbId };
+  initiateQuestion(question: string, dbId: string, conversationId?: string): Observable<QueryResponse> {
+    const payload: QueryRequest = { question, dbId, conversationId };
     return this.http.post<QueryResponse>(`${this.apiUrl}/query/initiate`, payload);
   }
 
-  resumeQuestion(threadId: string, approvedSQL: string): Observable<QueryResponse> {
-    return this.http.post<QueryResponse>(`${this.apiUrl}/query/resume`, { threadId, approvedSQL });
+  resumeQuestion(threadId: string, approvedSQL: string, conversationId?: string): Observable<QueryResponse> {
+    return this.http.post<QueryResponse>(`${this.apiUrl}/query/resume`, { threadId, approvedSQL, conversationId });
   }
 
   cancelReview(threadId: string, reason?: string): Observable<QueryResponse> {
     return this.http.post<QueryResponse>(`${this.apiUrl}/query/review/cancel`, { threadId, reason });
   }
 
-  submitQuestion(question: string, dbId: string): Observable<QueryResponse> {
-    const payload: QueryRequest = { question, dbId };
+  submitQuestion(question: string, dbId: string, conversationId?: string): Observable<QueryResponse> {
+    const payload: QueryRequest = { question, dbId, conversationId };
     return this.http.post<QueryResponse>(`${this.apiUrl}/query`, payload);
   }
 
@@ -89,8 +89,8 @@ export class QueryService {
     return this.http.get<AuditLogsResponse>(`${this.apiUrl}/logs/api?${params.toString()}`);
   }
 
-  async streamAgentQuestion(question: string, dbId: string, handlers: AgentStreamHandlers): Promise<void> {
-    const payload: QueryRequest = { question, dbId };
+  async streamAgentQuestion(question: string, dbId: string, handlers: AgentStreamHandlers, conversationId?: string): Promise<void> {
+    const payload: QueryRequest = { question, dbId, conversationId };
     const token = this.authService.token;
     const response = await fetch(`${this.apiUrl}/query/stream`, {
       method: 'POST',

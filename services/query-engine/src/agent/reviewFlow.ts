@@ -66,6 +66,10 @@ interface ReviewStreamHooks {
   }) => void;
 }
 
+interface StreamResponseMeta {
+  conversationId?: string;
+}
+
 const retryConfig = getAgentRetryConfig();
 
 function buildDraftResponse(session: ReturnType<typeof createReviewSession> | NonNullable<ReturnType<typeof getReviewSession>>): ReviewDraftResponse {
@@ -117,6 +121,7 @@ export async function streamReviewFlow(
   dbId: string,
   res: Response,
   hooks?: ReviewStreamHooks,
+  responseMeta?: StreamResponseMeta,
 ): Promise<ReviewDraftResponse | null> {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -166,6 +171,7 @@ export async function streamReviewFlow(
       sendEvent("node_end", generateEvent);
       sendEvent("error", {
         ...error,
+        ...responseMeta,
         maxRetries: retryConfig.maxRetries,
         maxAttempts: retryConfig.maxAttempts,
       });
@@ -194,12 +200,16 @@ export async function streamReviewFlow(
     };
     hooks?.onNodeEnd?.(generateEvent);
     sendEvent("node_end", generateEvent);
-    sendEvent("done", draft);
+    sendEvent("done", {
+      ...draft,
+      ...responseMeta,
+    });
     return draft;
   } catch (error: any) {
     const generationError = buildGenerationError(error?.message || "Unable to prepare SQL review draft.");
     sendEvent("error", {
       ...generationError,
+      ...responseMeta,
       maxRetries: retryConfig.maxRetries,
       maxAttempts: retryConfig.maxAttempts,
     });
