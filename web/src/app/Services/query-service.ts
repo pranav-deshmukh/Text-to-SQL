@@ -30,8 +30,10 @@ export interface AgentStreamHandlers {
 
 export interface AuditLogFilters {
   q?: string;
-  status?: 'success' | 'error' | '';
+  status?: 'success' | 'error' | 'cancelled' | '';
   stage?: string;
+  dbId?: string;
+  env?: 'dev' | 'prod' | 'all' | '';
   from?: string;
   to?: string;
   page?: number;
@@ -62,6 +64,10 @@ export class QueryService {
     return this.http.post<QueryResponse>(`${this.apiUrl}/query/resume`, { threadId, approvedSQL });
   }
 
+  cancelReview(threadId: string, reason?: string): Observable<QueryResponse> {
+    return this.http.post<QueryResponse>(`${this.apiUrl}/query/review/cancel`, { threadId, reason });
+  }
+
   submitQuestion(question: string, dbId: string): Observable<QueryResponse> {
     const payload: QueryRequest = { question, dbId };
     return this.http.post<QueryResponse>(`${this.apiUrl}/query`, payload);
@@ -73,6 +79,8 @@ export class QueryService {
     if (filters.q) params.set('q', filters.q);
     if (filters.status) params.set('status', filters.status);
     if (filters.stage) params.set('stage', filters.stage);
+    if (filters.dbId) params.set('dbId', filters.dbId);
+    if (filters.env) params.set('env', filters.env);
     if (filters.from) params.set('from', filters.from);
     if (filters.to) params.set('to', filters.to);
     params.set('page', String(filters.page ?? 1));

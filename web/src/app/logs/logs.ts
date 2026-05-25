@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { AuditRequestRecord } from '../Models/audit-log';
+import { DatabaseOption } from '../Models/database';
 import { AuditLogFilters, QueryService } from '../Services/query-service';
 
 @Component({
@@ -17,6 +18,7 @@ export class LogsComponent implements OnInit {
   loading = false;
   error = '';
   records: AuditRequestRecord[] = [];
+  databases: DatabaseOption[] = [];
   expandedRequestId = '';
 
   total = 0;
@@ -27,6 +29,8 @@ export class LogsComponent implements OnInit {
     q: '',
     status: '',
     stage: '',
+    dbId: '',
+    env: 'all',
     from: '',
     to: '',
     page: 1,
@@ -40,6 +44,7 @@ export class LogsComponent implements OnInit {
     'llm_sql_generation',
     'sql_safety_validation',
     'sql_execution',
+    'review_cancelled',
     'response_formatting',
     'request_completed',
   ];
@@ -47,7 +52,19 @@ export class LogsComponent implements OnInit {
   constructor(private readonly queryService: QueryService) {}
 
   ngOnInit(): void {
+    this.loadDatabases();
     void this.loadLogs();
+  }
+
+  loadDatabases(): void {
+    this.queryService.getDatabases().subscribe({
+      next: (response) => {
+        this.databases = response.databases;
+      },
+      error: () => {
+        this.databases = [];
+      },
+    });
   }
 
   async loadLogs(page: number = 1): Promise<void> {
@@ -84,6 +101,8 @@ export class LogsComponent implements OnInit {
       q: '',
       status: '',
       stage: '',
+      dbId: '',
+      env: 'all',
       from: '',
       to: '',
       page: 1,
@@ -114,6 +133,10 @@ export class LogsComponent implements OnInit {
 
   get errorCount(): number {
     return this.records.filter((record) => record.status === 'error').length;
+  }
+
+  get cancelledCount(): number {
+    return this.records.filter((record) => record.status === 'cancelled').length;
   }
 
   get displayedCount(): number {

@@ -86,3 +86,15 @@ export function updateReviewSession(threadId: string, updater: (session: ReviewS
 export function completeReviewSession(threadId: string): void {
   reviewSessions.delete(threadId);
 }
+
+export function cancelReviewSession(threadId: string, userId: string): ReviewSession | null {
+  cleanupExpiredReviewSessions();
+
+  const session = reviewSessions.get(threadId);
+  if (!session || session.userId !== userId) {
+    return null;
+  }
+
+  reviewSessions.delete(threadId);
+  return session;
+}
