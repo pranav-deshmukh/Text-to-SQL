@@ -17,7 +17,7 @@ export interface Message {
   editableSQL?: string;
   threadId?: string;
   dbId?: string;
-  status?: 'success' | 'error' | 'awaiting_review';
+  status?: 'success' | 'error' | 'awaiting_review' | 'cancelled';
   allowSqlView?: boolean;
   retrievedTables?: string[];
   schemaContext?: string;

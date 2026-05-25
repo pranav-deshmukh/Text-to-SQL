@@ -130,6 +130,8 @@ async function bootstrap() {
   }
 
   await registerAuthStore();
+  await registerChatStore();
+  await syncAuditDatabases(databases);
 
   // --- Routes ---
 
@@ -528,6 +530,7 @@ async function bootstrap() {
     const { threadId, approvedSQL } = req.body ?? {};
     const user = req.user;
     const auditConfig = getAuditConfig();
+    const existingSession = user && typeof threadId === "string" ? getReviewSession(threadId, user.userId) : null;
 
     beginAudit(requestId, "/query/resume", typeof approvedSQL === "string" ? approvedSQL : undefined);
     startStage(requestId, "request_received");
@@ -791,17 +794,26 @@ async function bootstrap() {
    * Body: { question: string }
     * Runs the LangGraph agent with self-correction up to the configured retry limit.
    */
-  app.post("/query", requireAuth, async (req, res) => {
+  app.post("/query", requireAuth, async (req: AuthenticatedRequest, res) => {
     const requestId = randomUUID();
     const { question, dbId } = req.body;
     const conversationId = resolveConversationId(req.body?.conversationId);
     const auditConfig = getAuditConfig();
+    const user = req.user;
+    const requestedDbId = typeof dbId === "string" ? dbId : undefined;
+    const requestedDatabase = requestedDbId ? getDatabaseConfig(requestedDbId) : undefined;
 
-    beginAudit(requestId, "/query", typeof question === "string" ? question : undefined);
+    beginAudit(requestId, "/query", typeof question === "string" ? question : undefined, {
+      dbId: requestedDbId,
+      dbDisplayName: requestedDatabase?.displayName,
+      userId: user?.userId,
+      userRole: user?.role,
+    });
     startStage(requestId, "request_received");
     stageSuccess(requestId, "request_received", {
       endpoint: "/query",
       method: "POST",
+      role: user?.role,
     });
 
     startStage(requestId, "input_validation");
@@ -835,6 +847,12 @@ async function bootstrap() {
 
     try {
       if (!user) {
+        startStage(requestId, "request_completed");
+        stageError(requestId, "request_completed", "Request rejected: missing authenticated user.");
+        await completeAudit(requestId, "error", {
+          endpoint: "/query",
+          code: "AUTH_REQUIRED",
+        });
         return res.status(401).json({
           ...buildRequestError("Authentication required."),
           error: "Authentication required.",
