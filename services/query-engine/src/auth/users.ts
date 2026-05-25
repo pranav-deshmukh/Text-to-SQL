@@ -19,7 +19,7 @@ interface SqlAuthUserRow {
   isActive: boolean | number | string;
 }
 
-function resolveAuthConnectionString(): string {
+export function resolveAuthConnectionString(): string {
   const explicit = process.env.AUTH_DB_CONNECTION_STRING?.trim();
   if (explicit) {
     return explicit;

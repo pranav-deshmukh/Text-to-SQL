@@ -60,6 +60,10 @@ export interface AgentExecutionHooks {
   onNodeEnd?: (event: AgentNodeUpdate) => void;
 }
 
+interface StreamResponseMeta {
+  conversationId?: string;
+}
+
 function getNextNode(update: Record<string, any>): string | undefined {
   if (update.generationError) {
     return (update.retryCount ?? 0) < retryConfig.maxAttempts ? "retrieve" : "error";
@@ -200,7 +204,13 @@ export async function runAgentWithHooks(question: string, dbId: string, hooks?: 
  *   - done:       { ...finalResult }        — full final result with rows
  *   - error:      { error: string }         — unexpected failure
  */
-export async function streamAgent(question: string, dbId: string, res: Response, hooks?: AgentExecutionHooks): Promise<AgentResult | null> {
+export async function streamAgent(
+  question: string,
+  dbId: string,
+  res: Response,
+  hooks?: AgentExecutionHooks,
+  responseMeta?: StreamResponseMeta,
+): Promise<AgentResult | null> {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -221,11 +231,15 @@ export async function streamAgent(question: string, dbId: string, res: Response,
       },
     });
 
-    sendEvent("done", finalResult);
+    sendEvent("done", {
+      ...finalResult,
+      ...responseMeta,
+    });
     return finalResult;
   } catch (err: any) {
     sendEvent("error", {
       ...buildGenerationError(err?.message || "Agent stream failed before SQL could be generated."),
+      ...responseMeta,
       maxRetries: retryConfig.maxRetries,
       maxAttempts: retryConfig.maxAttempts,
     });
