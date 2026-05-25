@@ -2,6 +2,7 @@ import { QueryResult } from './query-result';
 
 export interface QueryResponse {
   requestId?: string;
+  conversationId?: string;
   status?: 'success' | 'error' | 'awaiting_review';
   question?: string;
   sql?: string;

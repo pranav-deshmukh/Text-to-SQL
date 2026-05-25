@@ -21,6 +21,11 @@ export const routes: Routes = [
     canActivate: [authGuard],
   },
   {
+    path: 'chat/:conversationId',
+    component: QuotesComponent,
+    canActivate: [authGuard],
+  },
+  {
     path: 'logs',
     component: LogsComponent,
     canActivate: [logsGuard],

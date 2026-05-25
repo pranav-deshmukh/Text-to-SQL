@@ -8,9 +8,16 @@ export interface AgentStep {
 
 export interface Message {
   id: string;
+  conversationId?: string;
   role: 'user' | 'assistant';
   question?: string;
+  responseText?: string;
   sql?: string;
+  generatedSQL?: string;
+  editableSQL?: string;
+  threadId?: string;
+  dbId?: string;
+  status?: 'success' | 'error' | 'awaiting_review';
   allowSqlView?: boolean;
   retrievedTables?: string[];
   schemaContext?: string;
@@ -38,5 +45,9 @@ export interface Message {
   retryCount?: number;
   maxRetries?: number;
   maxAttempts?: number;
+  lastError?: {
+    phase: 'validation' | 'execution';
+    message: string;
+  } | null;
   timestamp: Date;
 }

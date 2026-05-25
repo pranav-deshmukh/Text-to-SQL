@@ -1,16 +1,18 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, ElementRef, NgZone, OnInit, ViewChild } from '@angular/core';
+import { Component, ElementRef, HostListener, NgZone, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
-import { firstValueFrom } from 'rxjs';
+import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
+import { Subscription, firstValueFrom } from 'rxjs';
 import { take } from 'rxjs/operators';
 import { QueryMessageComponent } from '../Components/query-message-component/query-message-component';
 import { SqlReviewDraft, SqlReviewPanelComponent } from '../Components/sql-review-panel/sql-review-panel';
+import { ChatConversationMessage, ChatConversationSummary } from '../Models/chat-conversation';
 import { DatabaseOption } from '../Models/database';
 import { AgentStep, Message } from '../Models/message';
 import { QueryResponse } from '../Models/query-response';
 import { AuthService } from '../Services/auth-service';
+import { ChatHistoryService } from '../Services/chat-history.service';
 import { AgentStreamNodeEvent, QueryService } from '../Services/query-service';
 import { environment } from '../../environments/environment';
 
@@ -21,7 +23,7 @@ import { environment } from '../../environments/environment';
   templateUrl: './quotes.html',
   styleUrl: './quotes.css',
 })
-export class QuotesComponent implements OnInit {
+export class QuotesComponent implements OnInit, OnDestroy {
   @ViewChild('messagesEnd') private messagesEnd?: ElementRef<HTMLDivElement>;
 
   readonly suggestions = [
@@ -34,35 +36,46 @@ export class QuotesComponent implements OnInit {
   input = '';
   loading = false;
   reviewLoading = false;
+  historyLoading = false;
+  conversationsLoading = true;
+  databasesLoading = true;
   databases: DatabaseOption[] = [];
   selectedDbId = '';
-  databasesLoading = true;
   messages: Message[] = [];
+  conversations: ChatConversationSummary[] = [];
   pendingReview: SqlReviewDraft | null = null;
+  profileMenuOpen = false;
+  activeConversationId: string | null = null;
   showLogsButton = environment.enableLogsUi;
+
+  private routeSubscription?: Subscription;
 
   constructor(
     private readonly queryService: QueryService,
     private readonly authService: AuthService,
+    private readonly chatHistoryService: ChatHistoryService,
     private readonly router: Router,
+    private readonly route: ActivatedRoute,
     private readonly ngZone: NgZone,
   ) {
     this.authService.restoreFromStorage();
   }
 
   ngOnInit(): void {
-    this.queryService.getDatabases().subscribe({
-      next: (response) => {
-        this.databases = response.databases;
-        if (this.databases.length > 0) {
-          this.selectedDbId = this.databases[0].dbId;
-        }
-        this.databasesLoading = false;
-      },
-      error: () => {
-        this.databasesLoading = false;
-      },
+    void this.loadDatabases();
+    void this.refreshConversations();
+    this.routeSubscription = this.route.paramMap.subscribe((params) => {
+      void this.handleRouteChange(params);
     });
+  }
+
+  ngOnDestroy(): void {
+    this.routeSubscription?.unsubscribe();
+  }
+
+  @HostListener('document:click')
+  closeProfileMenu(): void {
+    this.profileMenuOpen = false;
   }
 
   get isTechTeam(): boolean {
@@ -77,8 +90,24 @@ export class QuotesComponent implements OnInit {
     return this.isTechTeam ? 'Tech Team Mode' : 'End User Mode';
   }
 
+  get currentConversationTitle(): string {
+    if (!this.activeConversationId) {
+      return 'New chat';
+    }
+
+    return this.conversations.find((item) => item.conversationId === this.activeConversationId)?.title || 'Saved chat';
+  }
+
   get canSubmit(): boolean {
-    return !this.loading && !this.reviewLoading && !this.pendingReview && !!this.selectedDbId;
+    return !this.loading && !this.reviewLoading && !this.pendingReview && !!this.selectedDbId && !this.historyLoading;
+  }
+
+  get hasSavedConversations(): boolean {
+    return this.conversations.length > 0;
+  }
+
+  get canChangeDatabase(): boolean {
+    return !this.loading && !this.reviewLoading && !this.pendingReview && !this.historyLoading;
   }
 
   getSelectedDbName(): string {
@@ -93,6 +122,47 @@ export class QuotesComponent implements OnInit {
     return message.id;
   }
 
+  trackByConversationId(_index: number, conversation: ChatConversationSummary): string {
+    return conversation.conversationId;
+  }
+
+  async startNewChat(): Promise<void> {
+    this.pendingReview = null;
+    this.messages = [];
+    this.input = '';
+    this.activeConversationId = null;
+    await this.router.navigate(['/']);
+  }
+
+  async openConversation(conversationId: string): Promise<void> {
+    if (conversationId === this.activeConversationId) {
+      return;
+    }
+
+    await this.router.navigate(['/chat', conversationId]);
+  }
+
+  toggleProfileMenu(event: MouseEvent): void {
+    event.stopPropagation();
+    this.profileMenuOpen = !this.profileMenuOpen;
+  }
+
+  async archiveActiveConversation(event: MouseEvent): Promise<void> {
+    event.stopPropagation();
+
+    if (!this.activeConversationId) {
+      return;
+    }
+
+    try {
+      await firstValueFrom(this.chatHistoryService.archiveConversation(this.activeConversationId));
+      await this.refreshConversations();
+      await this.startNewChat();
+    } catch {
+      // Keep UI stable if archive fails.
+    }
+  }
+
   async submitQuery(): Promise<void> {
     const question = this.input.trim();
     if (!question || !this.canSubmit) {
@@ -104,6 +174,7 @@ export class QuotesComponent implements OnInit {
       ...this.messages,
       {
         id: crypto.randomUUID(),
+        conversationId: this.activeConversationId || undefined,
         role: 'user',
         question,
         timestamp: new Date(),
@@ -131,25 +202,42 @@ export class QuotesComponent implements OnInit {
     this.reviewLoading = true;
 
     try {
-      const response = await firstValueFrom(this.queryService.resumeQuestion(reviewDraft.threadId, sql));
+      const response = await firstValueFrom(
+        this.queryService.resumeQuestion(reviewDraft.threadId, sql, this.activeConversationId || undefined),
+      );
 
       if (response.status === 'awaiting_review') {
         this.pendingReview = this.toReviewDraft(response, reviewDraft.sourceMessageId);
-        return;
+        if (reviewDraft.sourceMessageId) {
+          this.updateAgentMessage(reviewDraft.sourceMessageId, (message) => ({
+            ...message,
+            sql: response.editableSQL || response.generatedSQL || message.sql,
+            generatedSQL: response.generatedSQL,
+            editableSQL: response.editableSQL,
+            threadId: response.threadId,
+            status: 'awaiting_review',
+            schemaContext: response.schemaContext,
+            promptPreview: response.promptPreview,
+            retrievedTables: response.retrievedTables,
+            lastError: response.lastError || null,
+          }));
+        }
+      } else {
+        this.pendingReview = null;
+        if (reviewDraft.sourceMessageId) {
+          this.updateAgentMessage(reviewDraft.sourceMessageId, (message) => ({
+            ...message,
+            ...this.createAssistantMessage(response),
+            id: message.id,
+            timestamp: message.timestamp,
+            agentSteps: message.agentSteps,
+          }));
+        } else {
+          this.messages = [...this.messages, this.createAssistantMessage(response)];
+        }
       }
 
-      this.pendingReview = null;
-      if (reviewDraft.sourceMessageId) {
-        this.updateAgentMessage(reviewDraft.sourceMessageId, (message) => ({
-          ...message,
-          ...this.createAssistantMessage(response),
-          id: message.id,
-          timestamp: message.timestamp,
-          agentSteps: message.agentSteps,
-        }));
-      } else {
-        this.messages = [...this.messages, this.createAssistantMessage(response)];
-      }
+      await this.handleConversationMutation(response.conversationId);
     } catch (error) {
       this.messages = [...this.messages, this.createErrorMessage(error)];
     } finally {
@@ -180,33 +268,120 @@ export class QuotesComponent implements OnInit {
 
   logout(): void {
     this.authService.logout();
+    this.profileMenuOpen = false;
     this.pendingReview = null;
     this.messages = [];
     void this.router.navigate(['/login']);
   }
 
-  private handleInitiateResponse(response: QueryResponse): void {
-    if (response.status === 'awaiting_review') {
-      this.pendingReview = this.toReviewDraft(response);
+  formatConversationTime(value: string | null): string {
+    if (!value) {
+      return '';
+    }
+
+    const date = new Date(value);
+    const diffMs = Date.now() - date.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffHours < 1) {
+      return 'Just now';
+    }
+
+    if (diffHours < 24) {
+      return `${diffHours}h ago`;
+    }
+
+    if (diffDays < 7) {
+      return `${diffDays}d ago`;
+    }
+
+    return date.toLocaleDateString();
+  }
+
+  isConversationActive(conversationId: string): boolean {
+    return this.activeConversationId === conversationId;
+  }
+
+  private async handleRouteChange(params: ParamMap): Promise<void> {
+    const conversationId = params.get('conversationId');
+    this.activeConversationId = conversationId;
+    this.pendingReview = null;
+
+    if (!conversationId) {
+      this.messages = [];
+      this.historyLoading = false;
+      this.scrollToBottomSoon();
       return;
     }
 
-    this.messages = [...this.messages, this.createAssistantMessage(response)];
+    this.historyLoading = true;
+
+    try {
+      const response = await firstValueFrom(this.chatHistoryService.getConversation(conversationId));
+      const conversation = response.conversation;
+      this.activeConversationId = conversation.conversationId;
+      if (conversation.selectedDbId) {
+        this.selectedDbId = conversation.selectedDbId;
+      }
+      this.messages = conversation.messages.map((message) => this.mapStoredMessage(message));
+      this.pendingReview = this.buildPendingReviewFromMessages(this.messages);
+    } catch (error) {
+      if (error instanceof HttpErrorResponse && error.status === 404) {
+        this.activeConversationId = null;
+        this.messages = [];
+        await this.router.navigate(['/'], { replaceUrl: true });
+      }
+    } finally {
+      this.historyLoading = false;
+      this.scrollToBottomSoon();
+    }
   }
 
-  private canRetry(retryCount?: number, maxAttempts?: number, maxRetries?: number): boolean {
-    const totalAttempts = maxAttempts ?? ((maxRetries ?? 0) + 1);
-    return (retryCount ?? 0) < totalAttempts;
+  private async loadDatabases(): Promise<void> {
+    this.databasesLoading = true;
+
+    try {
+      const response = await firstValueFrom(this.queryService.getDatabases());
+      this.databases = response.databases;
+      if (!this.selectedDbId && this.databases.length > 0) {
+        this.selectedDbId = this.databases[0].dbId;
+      }
+    } finally {
+      this.databasesLoading = false;
+    }
+  }
+
+  private async refreshConversations(): Promise<void> {
+    this.conversationsLoading = true;
+
+    try {
+      const response = await firstValueFrom(this.chatHistoryService.getConversations());
+      this.conversations = response.conversations;
+    } finally {
+      this.conversationsLoading = false;
+    }
+  }
+
+  private async handleConversationMutation(conversationId?: string): Promise<void> {
+    await this.refreshConversations();
+
+    if (conversationId && conversationId !== this.activeConversationId) {
+      this.activeConversationId = conversationId;
+      await this.router.navigate(['/chat', conversationId], { replaceUrl: true });
+    }
   }
 
   private async submitAgentQuery(question: string): Promise<void> {
     const assistantId = crypto.randomUUID();
     const dbId = this.selectedDbId;
+    const conversationId = this.activeConversationId || undefined;
 
     this.messages = [
       ...this.messages,
       {
         id: assistantId,
+        conversationId,
         role: 'assistant',
         allowSqlView: this.isTechTeam,
         agentSteps: [{ node: 'retrieve', status: 'running' }],
@@ -216,89 +391,92 @@ export class QuotesComponent implements OnInit {
     this.scrollToBottomSoon();
 
     try {
-      await this.queryService.streamAgentQuestion(question, dbId, {
-        onNodeEnd: (event) => {
-          this.updateAgentMessage(assistantId, (message) => {
-            const isRetrying =
-              (!!event.generationError || !!event.validationError || !!event.executionError) &&
-              this.canRetry(event.retryCount, event.maxAttempts, event.maxRetries);
+      await this.queryService.streamAgentQuestion(
+        question,
+        dbId,
+        {
+          onNodeEnd: (event) => {
+            this.updateAgentMessage(assistantId, (message) => {
+              const isRetrying =
+                (!!event.generationError || !!event.validationError || !!event.executionError) &&
+                this.canRetry(event.retryCount, event.maxAttempts, event.maxRetries);
 
-            return {
-              ...message,
-              agentSteps: this.advanceAgentSteps(message.agentSteps || [], event),
-              sql: event.sql || message.sql,
-              allowSqlView: this.isTechTeam,
-              error: !isRetrying && event.generationError ? 'Unable to generate SQL for this question.' : isRetrying ? undefined : message.error,
-              detail: !isRetrying && event.generationError ? event.generationError : isRetrying ? undefined : message.detail,
-              phase: !isRetrying && event.generationError ? 'generation' : isRetrying ? undefined : message.phase,
-              displayTarget: !isRetrying && event.generationError ? 'error-box' : isRetrying ? undefined : message.displayTarget,
-              finalError: message.finalError,
-              retryCount: event.retryCount ?? message.retryCount,
-              maxRetries: event.maxRetries ?? message.maxRetries,
-              maxAttempts: event.maxAttempts ?? message.maxAttempts,
-            };
-          });
-        },
-        onDone: (response) => {
-          if (response.status === 'awaiting_review') {
-            this.pendingReview = this.toReviewDraft(response, assistantId);
+              return {
+                ...message,
+                agentSteps: this.advanceAgentSteps(message.agentSteps || [], event),
+                sql: event.sql || message.sql,
+                allowSqlView: this.isTechTeam,
+                error: !isRetrying && event.generationError ? 'Unable to generate SQL for this question.' : isRetrying ? undefined : message.error,
+                detail: !isRetrying && event.generationError ? event.generationError : isRetrying ? undefined : message.detail,
+                phase: !isRetrying && event.generationError ? 'generation' : isRetrying ? undefined : message.phase,
+                displayTarget: !isRetrying && event.generationError ? 'error-box' : isRetrying ? undefined : message.displayTarget,
+                finalError: message.finalError,
+                retryCount: event.retryCount ?? message.retryCount,
+                maxRetries: event.maxRetries ?? message.maxRetries,
+                maxAttempts: event.maxAttempts ?? message.maxAttempts,
+              };
+            });
+          },
+          onDone: (response) => {
+            if (response.status === 'awaiting_review') {
+              this.pendingReview = this.toReviewDraft(response, assistantId);
+              this.updateAgentMessage(assistantId, (message) => ({
+                ...message,
+                conversationId: response.conversationId || message.conversationId,
+                sql: response.editableSQL || response.generatedSQL || message.sql,
+                generatedSQL: response.generatedSQL,
+                editableSQL: response.editableSQL,
+                threadId: response.threadId,
+                status: 'awaiting_review',
+                allowSqlView: this.isTechTeam,
+                retrievedTables: response.retrievedTables,
+                schemaContext: response.schemaContext,
+                promptPreview: response.promptPreview,
+                retryCount: response.retryCount ?? message.retryCount,
+                maxRetries: response.maxRetries ?? message.maxRetries,
+                maxAttempts: response.maxAttempts ?? message.maxAttempts,
+                lastError: response.lastError || null,
+                agentSteps: (message.agentSteps || []).map((step) =>
+                  step.status === 'running' ? { ...step, status: 'done' } : step,
+                ),
+              }));
+            } else {
+              this.updateAgentMessage(assistantId, (message) => ({
+                ...message,
+                ...this.createAssistantMessage(response),
+                id: message.id,
+                timestamp: message.timestamp,
+                agentSteps: (message.agentSteps || []).map((step) =>
+                  step.status === 'running' ? { ...step, status: 'done' } : step,
+                ),
+              }));
+            }
+
+            void this.handleConversationMutation(response.conversationId);
+          },
+          onError: (streamError) => {
             this.updateAgentMessage(assistantId, (message) => ({
               ...message,
-              sql: response.generatedSQL || message.sql,
-              allowSqlView: this.isTechTeam,
-              retrievedTables: response.retrievedTables,
-              schemaContext: response.schemaContext,
-              promptPreview: response.promptPreview,
-              retryCount: response.retryCount ?? message.retryCount,
-              maxRetries: response.maxRetries ?? message.maxRetries,
-              maxAttempts: response.maxAttempts ?? message.maxAttempts,
+              conversationId: streamError.conversationId || message.conversationId,
+              error: streamError.error,
+              detail: streamError.detail,
+              phase: streamError.phase,
+              displayTarget: streamError.displayTarget,
+              code: streamError.code,
+              finalError: streamError.finalError,
+              retryCount: streamError.retryCount ?? message.retryCount,
+              maxRetries: streamError.maxRetries ?? message.maxRetries,
+              maxAttempts: streamError.maxAttempts ?? message.maxAttempts,
               agentSteps: (message.agentSteps || []).map((step) =>
-                step.status === 'running' ? { ...step, status: 'done' } : step,
+                step.status === 'running' ? { ...step, status: 'error', detail: streamError.error } : step,
               ),
             }));
-            return;
-          }
 
-          this.updateAgentMessage(assistantId, (message) => ({
-            ...message,
-            sql: response.sql,
-            allowSqlView: this.isTechTeam,
-            data: response.data,
-            error: response.error,
-            detail: response.detail,
-            phase: response.phase,
-            displayTarget: response.displayTarget,
-            code: response.code,
-            finalError: response.finalError,
-            retryCount: response.retryCount,
-            maxRetries: response.maxRetries,
-            maxAttempts: response.maxAttempts,
-            retrievedTables: response.retrievedTables,
-            schemaContext: response.schemaContext,
-            promptPreview: response.promptPreview,
-            agentSteps: (message.agentSteps || []).map((step) =>
-              step.status === 'running' ? { ...step, status: 'done' } : step,
-            ),
-          }));
+            void this.handleConversationMutation(streamError.conversationId);
+          },
         },
-        onError: (streamError) => {
-          this.updateAgentMessage(assistantId, (message) => ({
-            ...message,
-            error: streamError.error,
-            detail: streamError.detail,
-            phase: streamError.phase,
-            displayTarget: streamError.displayTarget,
-            code: streamError.code,
-            finalError: streamError.finalError,
-            retryCount: streamError.retryCount ?? message.retryCount,
-            maxRetries: streamError.maxRetries ?? message.maxRetries,
-            maxAttempts: streamError.maxAttempts ?? message.maxAttempts,
-            agentSteps: (message.agentSteps || []).map((step) =>
-              step.status === 'running' ? { ...step, status: 'error', detail: streamError.error } : step,
-            ),
-          }));
-        },
-      });
+        conversationId,
+      );
     } catch (error) {
       const fallbackResponse = (error as Error & { response?: QueryResponse }).response;
 
@@ -317,10 +495,11 @@ export class QuotesComponent implements OnInit {
           timestamp: message.timestamp,
           agentSteps: this.buildFallbackAgentSteps(fallbackResponse),
         }));
+        await this.handleConversationMutation(fallbackResponse.conversationId);
         return;
       }
 
-      const response = await firstValueFrom(this.queryService.initiateQuestion(question, dbId));
+      const response = await firstValueFrom(this.queryService.initiateQuestion(question, dbId, conversationId));
       if (response.status === 'awaiting_review') {
         this.pendingReview = this.toReviewDraft(response, assistantId);
       }
@@ -335,7 +514,13 @@ export class QuotesComponent implements OnInit {
         timestamp: message.timestamp,
         agentSteps: this.buildFallbackAgentSteps(response),
       }));
+      await this.handleConversationMutation(response.conversationId);
     }
+  }
+
+  private canRetry(retryCount?: number, maxAttempts?: number, maxRetries?: number): boolean {
+    const totalAttempts = maxAttempts ?? ((maxRetries ?? 0) + 1);
+    return (retryCount ?? 0) < totalAttempts;
   }
 
   private advanceAgentSteps(existingSteps: AgentStep[], event: AgentStreamNodeEvent): AgentStep[] {
@@ -468,11 +653,70 @@ export class QuotesComponent implements OnInit {
     };
   }
 
+  private buildPendingReviewFromMessages(messages: Message[]): SqlReviewDraft | null {
+    const message = [...messages].reverse().find((item) => item.status === 'awaiting_review' && item.threadId);
+    if (!message) {
+      return null;
+    }
+
+    return {
+      question: message.question || '',
+      threadId: message.threadId || '',
+      sourceMessageId: message.id,
+      generatedSQL: message.generatedSQL || message.sql || '',
+      editableSQL: message.editableSQL || message.generatedSQL || message.sql || '',
+      schemaContext: message.schemaContext,
+      promptPreview: message.promptPreview,
+      retrievedTables: message.retrievedTables,
+      lastError: message.lastError || undefined,
+    };
+  }
+
+  private mapStoredMessage(message: ChatConversationMessage): Message {
+    return {
+      id: message.messageId,
+      conversationId: message.conversationId,
+      role: message.role === 'user' ? 'user' : 'assistant',
+      question: message.question || undefined,
+      responseText: message.responseText || undefined,
+      sql: message.sql || message.editableSQL || message.generatedSQL || undefined,
+      generatedSQL: message.generatedSQL || undefined,
+      editableSQL: message.editableSQL || undefined,
+      threadId: message.threadId || undefined,
+      dbId: message.dbId || undefined,
+      status: message.status || undefined,
+      allowSqlView: this.isTechTeam,
+      retrievedTables: message.retrievedTables,
+      schemaContext: message.schemaContext || undefined,
+      promptPreview: message.promptPreview || undefined,
+      data: message.result || undefined,
+      error: message.error || undefined,
+      detail: message.detail || undefined,
+      phase: message.phase || undefined,
+      displayTarget: message.displayTarget || undefined,
+      code: message.code || undefined,
+      finalError: message.finalError,
+      tokens: message.tokens || undefined,
+      agentSteps: message.agentSteps || undefined,
+      retryCount: message.retryCount || undefined,
+      maxRetries: message.maxRetries || undefined,
+      maxAttempts: message.maxAttempts || undefined,
+      lastError: message.lastError,
+      timestamp: new Date(message.createdAt),
+    };
+  }
+
   private createAssistantMessage(response: QueryResponse): Message {
     return {
       id: crypto.randomUUID(),
+      conversationId: response.conversationId,
       role: 'assistant',
-      sql: response.sql,
+      question: response.question,
+      sql: response.sql || response.editableSQL || response.generatedSQL,
+      generatedSQL: response.generatedSQL,
+      editableSQL: response.editableSQL,
+      threadId: response.threadId,
+      status: response.status,
       allowSqlView: this.isTechTeam,
       data: response.data,
       error: response.error,
@@ -488,6 +732,7 @@ export class QuotesComponent implements OnInit {
       schemaContext: response.schemaContext,
       promptPreview: response.promptPreview,
       tokens: response.tokens,
+      lastError: response.lastError,
       timestamp: new Date(),
     };
   }
@@ -497,6 +742,7 @@ export class QuotesComponent implements OnInit {
       const apiError = error.error as QueryResponse | undefined;
       return {
         id: crypto.randomUUID(),
+        conversationId: apiError?.conversationId,
         role: 'assistant',
         error: apiError?.error || error.message || 'Failed to connect to query engine',
         detail: apiError?.detail,
