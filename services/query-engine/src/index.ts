@@ -11,7 +11,7 @@ import { AgentExecutionHooks, runAgentWithHooks, streamAgent } from "./agent";
 import { initiateReviewFlow, resumeReviewFlow, getReviewStatus, streamReviewFlow } from "./agent/reviewFlow";
 import { requireAuth, requireRole, type AuthenticatedRequest } from "./auth/middleware";
 import { createAuthToken } from "./auth/token";
-import { authenticateUser } from "./auth/users";
+import { authenticateUser, createUser, registerAuthStore } from "./auth/users";
 import { buildInternalError, buildRequestError } from "./errors/queryError";
 import { getAgentRetryConfig } from "./config/appConfig";
 import { getAuditConfig } from "./config/auditConfig";
@@ -106,6 +106,8 @@ async function bootstrap() {
     console.log(`✅ Initialized database: ${database.displayName} (${database.dbId})`);
   }
 
+  await registerAuthStore();
+
   // --- Routes ---
 
   app.get("/health", (_req, res) => {
@@ -121,26 +123,68 @@ async function bootstrap() {
     });
   });
 
-  app.post("/auth/login", (req, res) => {
+  app.post("/auth/login", async (req, res) => {
     const { username, password } = req.body ?? {};
 
     if (typeof username !== "string" || typeof password !== "string") {
       return res.status(400).json(buildRequestError("Missing 'username' or 'password' in request body."));
     }
 
-    const user = authenticateUser(username, password);
-    if (!user) {
-      return res.status(401).json({
-        ...buildRequestError("Invalid username or password."),
-        error: "Invalid username or password.",
-        code: "AUTH_INVALID_CREDENTIALS",
+    try {
+      const user = await authenticateUser(username, password);
+      if (!user) {
+        return res.status(401).json({
+          ...buildRequestError("Invalid username or password."),
+          error: "Invalid username or password.",
+          code: "AUTH_INVALID_CREDENTIALS",
+        });
+      }
+
+      return res.json({
+        token: createAuthToken(user),
+        user,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown authentication error";
+      console.error("[AUTH] Login failed:", message);
+      return res.status(500).json({
+        ...buildInternalError("Authentication service unavailable."),
+        error: "Authentication service unavailable.",
+        code: "AUTH_SERVICE_UNAVAILABLE",
       });
     }
+  });
 
-    return res.json({
-      token: createAuthToken(user),
-      user,
-    });
+  app.post("/auth/signup", async (req, res) => {
+    const { username, password } = req.body ?? {};
+
+    if (typeof username !== "string" || typeof password !== "string") {
+      return res.status(400).json(buildRequestError("Missing 'username' or 'password' in request body."));
+    }
+
+    try {
+      const result = await createUser(username, password);
+      if (!result.user) {
+        return res.status(400).json({
+          ...buildRequestError(result.error || "Unable to create account."),
+          error: result.error || "Unable to create account.",
+          code: result.code || "AUTH_SIGNUP_FAILED",
+        });
+      }
+
+      return res.status(201).json({
+        token: createAuthToken(result.user),
+        user: result.user,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown signup error";
+      console.error("[AUTH] Signup failed:", message);
+      return res.status(500).json({
+        ...buildInternalError("Authentication service unavailable."),
+        error: "Authentication service unavailable.",
+        code: "AUTH_SERVICE_UNAVAILABLE",
+      });
+    }
   });
 
   app.get("/auth/me", requireAuth, (req: AuthenticatedRequest, res) => {

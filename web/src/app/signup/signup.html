@@ -1,0 +1,62 @@
+<div class="signup-shell">
+  <div class="signup-card">
+    <div class="auth-panel auth-panel-info">
+      <div class="brand-row">
+        <div class="brand-mark">Q</div>
+        <div>
+          <div class="brand-title">QueryAssist</div>
+          <div class="brand-subtitle">Create your SQL workspace account</div>
+        </div>
+      </div>
+
+      <div class="auth-copy">
+        <span class="eyebrow">New account</span>
+        <h1>Create an end-user account</h1>
+        <p>Self-signup is available for standard query users. Tech team access remains provisioned separately for secure review and logs access.</p>
+      </div>
+
+      <ul class="feature-list">
+        <li>Ask natural-language questions against SQL Server without writing T-SQL manually.</li>
+        <li>Accounts are stored in SQL Server and authenticated with JWT sessions.</li>
+        <li>Use an assigned tech-team account if you need review-mode capabilities.</li>
+      </ul>
+    </div>
+
+    <div class="auth-panel auth-panel-form">
+      <div class="signup-copy">
+        <h2>Sign up</h2>
+        <p>Create your end-user login to start querying data.</p>
+      </div>
+
+      <form class="signup-form" (ngSubmit)="submit()">
+        <label>
+          <span>Username</span>
+          <input type="text" name="username" [(ngModel)]="username" autocomplete="username" placeholder="Choose a username" />
+        </label>
+
+        <label>
+          <span>Password</span>
+          <input type="password" name="password" [(ngModel)]="password" autocomplete="new-password" placeholder="Create a password" />
+        </label>
+
+        <label>
+          <span>Confirm password</span>
+          <input type="password" name="confirmPassword" [(ngModel)]="confirmPassword" autocomplete="new-password" placeholder="Re-enter your password" />
+        </label>
+
+        <div class="password-hint">Use at least 8 characters with uppercase, lowercase, and a number.</div>
+
+        <div *ngIf="error" class="error-banner">{{ error }}</div>
+
+        <button type="submit" [disabled]="loading || !username.trim() || !password || !confirmPassword || !passwordsMatch">
+          {{ loading ? 'Creating account...' : 'Create account' }}
+        </button>
+      </form>
+
+      <div class="auth-links">
+        <span>Already have an account?</span>
+        <a routerLink="/login">Sign in</a>
+      </div>
+    </div>
+  </div>
+</div>

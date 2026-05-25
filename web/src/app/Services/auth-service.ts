@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { BehaviorSubject, Observable, tap } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { AuthUser, LoginResponse, UserRole } from '../Models/auth-user';
+import { AuthUser, LoginResponse, SignupPayload, UserRole } from '../Models/auth-user';
 
 interface DecodedTokenPayload {
   sub: string;
@@ -25,10 +25,13 @@ export class AuthService {
 
   login(username: string, password: string): Observable<LoginResponse> {
     return this.http.post<LoginResponse>(`${this.apiUrl}/auth/login`, { username, password }).pipe(
-      tap((response) => {
-        localStorage.setItem(this.tokenStorageKey, response.token);
-        this.currentUserSubject.next(response.user);
-      }),
+      tap((response) => this.persistSession(response)),
+    );
+  }
+
+  signup(payload: SignupPayload): Observable<LoginResponse> {
+    return this.http.post<LoginResponse>(`${this.apiUrl}/auth/signup`, payload).pipe(
+      tap((response) => this.persistSession(response)),
     );
   }
 
@@ -63,6 +66,11 @@ export class AuthService {
 
   restoreFromStorage(): void {
     this.currentUserSubject.next(this.readUserFromToken());
+  }
+
+  private persistSession(response: LoginResponse): void {
+    localStorage.setItem(this.tokenStorageKey, response.token);
+    this.currentUserSubject.next(response.user);
   }
 
   private readUserFromToken(): AuthUser | null {

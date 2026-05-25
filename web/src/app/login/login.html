@@ -1,41 +1,62 @@
 <div class="login-shell">
   <div class="login-card">
-    <div class="brand-row">
-      <div class="brand-mark">Q</div>
-      <div>
-        <div class="brand-title">QueryAssist</div>
-        <div class="brand-subtitle">Secure access to your SQL workspace</div>
+    <div class="auth-panel auth-panel-info">
+      <div class="brand-row">
+        <div class="brand-mark">Q</div>
+        <div>
+          <div class="brand-title">QueryAssist</div>
+          <div class="brand-subtitle">Secure access to your SQL workspace</div>
+        </div>
       </div>
+
+      <div class="auth-copy">
+        <span class="eyebrow">Welcome back</span>
+        <h1>Sign in to your workspace</h1>
+        <p>Continue to ask questions in plain English, review guarded SQL, and access role-based tools.</p>
+      </div>
+
+      <ul class="feature-list">
+        <li>End users get a simple natural-language query experience.</li>
+        <li>Tech team users can inspect SQL and logs with the same account system.</li>
+        <li>All sessions stay backed by SQL Server and JWT auth.</li>
+      </ul>
     </div>
 
-    <div class="login-copy">
-      <h1>Sign in</h1>
-      <p>Use your assigned credentials to continue.</p>
-    </div>
+    <div class="auth-panel auth-panel-form">
+      <div class="login-copy">
+        <h2>Sign in</h2>
+        <p>Use your username and password to continue.</p>
+      </div>
 
-    <form class="login-form" (ngSubmit)="submit()">
-      <label>
-        <span>Username</span>
-        <input type="text" name="username" [(ngModel)]="username" autocomplete="username" placeholder="Enter your username" />
-      </label>
+      <form class="login-form" (ngSubmit)="submit()">
+        <label>
+          <span>Username</span>
+          <input type="text" name="username" [(ngModel)]="username" autocomplete="username" placeholder="Enter your username" />
+        </label>
 
-      <label>
-        <span>Password</span>
-        <input type="password" name="password" [(ngModel)]="password" autocomplete="current-password" placeholder="Enter your password" />
-      </label>
+        <label>
+          <span>Password</span>
+          <input type="password" name="password" [(ngModel)]="password" autocomplete="current-password" placeholder="Enter your password" />
+        </label>
 
-      <div *ngIf="error" class="error-banner">{{ error }}</div>
+        <div *ngIf="error" class="error-banner">{{ error }}</div>
 
-      <button type="submit" [disabled]="loading || !username.trim() || !password.trim()">
-        {{ loading ? 'Signing in...' : 'Sign in' }}
-      </button>
-    </form>
+        <button type="submit" [disabled]="loading || !username.trim() || !password.trim()">
+          {{ loading ? 'Signing in...' : 'Sign in' }}
+        </button>
+      </form>
 
-    <div class="login-hint">
-      <span class="hint-label">Demo access</span>
-      <strong>enduser</strong> / <strong>EndUser&#64;123</strong>
-      <span class="hint-divider">•</span>
-      <strong>techteam</strong> / <strong>TechTeam&#64;123</strong>
+      <div class="auth-links">
+        <span>Need an account?</span>
+        <a routerLink="/signup">Create one</a>
+      </div>
+
+      <div class="login-hint">
+        <span class="hint-label">Seeded SQL access</span>
+        <strong>enduser</strong> / <strong>EndUser&#64;123</strong>
+        <span class="hint-divider">•</span>
+        <strong>techteam</strong> / <strong>TechTeam&#64;123</strong>
+      </div>
     </div>
   </div>
 </div>

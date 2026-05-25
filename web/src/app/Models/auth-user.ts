@@ -10,3 +10,8 @@ export interface LoginResponse {
   token: string;
   user: AuthUser;
 }
+
+export interface SignupPayload {
+  username: string;
+  password: string;
+}
