@@ -1,5 +1,3 @@
-import path from "path";
-
 export type AppEnvironment = "dev" | "prod";
 
 export interface AuditConfig {
@@ -7,7 +5,6 @@ export interface AuditConfig {
   enabled: boolean;
   uiEnabled: boolean;
   includeStack: boolean;
-  logDir: string;
   maxTextLength: number;
 }
 
@@ -37,23 +34,16 @@ function resolveAppEnvironment(): AppEnvironment {
 
 export function getAuditConfig(): AuditConfig {
   const appEnv = resolveAppEnvironment();
-  const enabledByEnv = appEnv === "dev";
-  const enabled = parseBoolean(process.env.AUDIT_ENABLED, enabledByEnv) && appEnv === "dev";
-  const uiEnabled = parseBoolean(process.env.AUDIT_UI_ENABLED, true) && enabled;
+  const enabled = parseBoolean(process.env.AUDIT_ENABLED, true);
+  const uiEnabled = parseBoolean(process.env.AUDIT_UI_ENABLED, true) && appEnv === "dev";
   const includeStack = parseBoolean(process.env.AUDIT_INCLUDE_STACK, true) && appEnv === "dev";
   const maxTextLength = Math.max(200, Number.parseInt(process.env.AUDIT_MAX_TEXT_LENGTH || "3000", 10) || 3000);
-
-  const configuredDir = process.env.AUDIT_LOG_DIR || "logs/dev";
-  const logDir = path.isAbsolute(configuredDir)
-    ? configuredDir
-    : path.resolve(process.cwd(), configuredDir);
 
   return {
     appEnv,
     enabled,
     uiEnabled,
     includeStack,
-    logDir,
     maxTextLength,
   };
 }
