@@ -20,6 +20,10 @@
       <span class="summary-label">Errors</span>
       <strong>{{ errorCount }}</strong>
     </article>
+    <article class="summary-card cancelled">
+      <span class="summary-label">Cancelled</span>
+      <strong>{{ cancelledCount }}</strong>
+    </article>
     <article class="summary-card">
       <span class="summary-label">Shown</span>
       <strong>{{ displayedCount }}</strong>
@@ -44,6 +48,7 @@
         <option value="">All</option>
         <option value="success">Success</option>
         <option value="error">Error</option>
+        <option value="cancelled">Cancelled</option>
       </select>
     </div>
 
@@ -52,6 +57,23 @@
       <select id="stage" [(ngModel)]="filters.stage" name="stage">
         <option value="">All</option>
         <option *ngFor="let stage of stages" [value]="stage">{{ formatStageName(stage) }}</option>
+      </select>
+    </div>
+
+    <div class="filter-field">
+      <label for="database">Database</label>
+      <select id="database" [(ngModel)]="filters.dbId" name="database">
+        <option value="">All</option>
+        <option *ngFor="let database of databases" [value]="database.dbId">{{ database.displayName }}</option>
+      </select>
+    </div>
+
+    <div class="filter-field">
+      <label for="environment">Environment</label>
+      <select id="environment" [(ngModel)]="filters.env" name="environment">
+        <option value="all">All</option>
+        <option value="dev">Dev</option>
+        <option value="prod">Prod</option>
       </select>
     </div>
 
@@ -78,7 +100,7 @@
     <article class="log-card" *ngFor="let record of records; trackBy: trackByRequestId">
       <button class="log-head" type="button" (click)="toggleExpand(record.requestId)">
         <div class="head-left">
-          <span class="status" [class.error-status]="record.status === 'error'">
+          <span class="status" [class.error-status]="record.status === 'error'" [class.cancelled-status]="record.status === 'cancelled'">
             {{ record.status }}
           </span>
           <strong>{{ record.endpoint }}</strong>
@@ -90,6 +112,8 @@
         </div>
 
         <div class="head-right">
+          <span>{{ record.appEnv | uppercase }}</span>
+          <span>{{ record.dbDisplayName || record.dbId || '-' }}</span>
           <span>{{ record.startedAt | date: 'medium' }}</span>
           <span class="duration" *ngIf="record.completedAt">{{ getRequestDurationMs(record) }} ms</span>
         </div>
@@ -105,12 +129,16 @@
           <strong>Failure summary:</strong> {{ getErrorSummary(record) }}
         </p>
 
+        <p *ngIf="record.status === 'cancelled'" class="cancelled-banner">
+          <strong>Cancelled:</strong> This review was intentionally stopped before execution.
+        </p>
+
         <div class="stages">
           <div class="stage" *ngFor="let stage of record.stages">
             <div class="stage-title">
-              <span class="stage-dot" [class.stage-dot-error]="stage.status === 'error'"></span>
+              <span class="stage-dot" [class.stage-dot-error]="stage.status === 'error'" [class.stage-dot-cancelled]="stage.status === 'cancelled'"></span>
               <strong>{{ formatStageName(stage.stage) }}</strong>
-              <span class="stage-status" [class.error-status]="stage.status === 'error'">{{ stage.status }}</span>
+              <span class="stage-status" [class.error-status]="stage.status === 'error'" [class.cancelled-status]="stage.status === 'cancelled'">{{ stage.status }}</span>
               <span class="stage-time">{{ stage.timestamp | date: 'mediumTime' }}</span>
               <span class="duration" *ngIf="stage.durationMs">{{ stage.durationMs }} ms</span>
             </div>

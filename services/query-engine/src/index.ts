@@ -9,6 +9,7 @@ import { retrieveContextDetailed } from "./rag/retriever";
 import { registerValidator } from "./validator/sqlValidator";
 import { AgentExecutionHooks, runAgentWithHooks, streamAgent } from "./agent";
 import { initiateReviewFlow, resumeReviewFlow, getReviewStatus, streamReviewFlow } from "./agent/reviewFlow";
+import { cancelReviewSession } from "./agent/reviewSessions";
 import { getReviewSession, updateReviewSession } from "./agent/reviewSessions";
 import { requireAuth, requireRole, type AuthenticatedRequest } from "./auth/middleware";
 import { createAuthToken } from "./auth/token";
@@ -30,8 +31,8 @@ import { buildInternalError, buildRequestError } from "./errors/queryError";
 import { getAgentRetryConfig } from "./config/appConfig";
 import { getAuditConfig } from "./config/auditConfig";
 import { getDatabaseConfig, getRegisteredDatabases } from "./config/dbRegistry";
-import { beginAudit, completeAudit, stageError, stageSuccess, startStage } from "./logging/auditLogger";
-import { queryAuditLogs } from "./logging/markdownLogParser";
+import { beginAudit, completeAudit, stageCancelled, stageError, stageSuccess, startStage } from "./logging/auditLogger";
+import { queryAuditLogs, syncAuditDatabases } from "./logging/auditDbStore";
 
 dotenv.config();
 
@@ -129,7 +130,6 @@ async function bootstrap() {
   }
 
   await registerAuthStore();
-  await registerChatStore();
 
   // --- Routes ---
 
@@ -321,8 +321,15 @@ async function bootstrap() {
     const conversationId = resolveConversationId(req.body?.conversationId);
     const user = req.user;
     const auditConfig = getAuditConfig();
+    const requestedDbId = typeof dbId === "string" ? dbId : undefined;
+    const requestedDatabase = requestedDbId ? getDatabaseConfig(requestedDbId) : undefined;
 
-    beginAudit(requestId, "/query/initiate", typeof question === "string" ? question : undefined);
+    beginAudit(requestId, "/query/initiate", typeof question === "string" ? question : undefined, {
+      dbId: requestedDbId,
+      dbDisplayName: requestedDatabase?.displayName,
+      userId: user?.userId,
+      userRole: user?.role,
+    });
     startStage(requestId, "request_received");
     stageSuccess(requestId, "request_received", {
       endpoint: "/query/initiate",
@@ -521,7 +528,6 @@ async function bootstrap() {
     const { threadId, approvedSQL } = req.body ?? {};
     const user = req.user;
     const auditConfig = getAuditConfig();
-    const existingSession = user && typeof threadId === "string" ? getReviewSession(threadId, user.userId) : null;
 
     beginAudit(requestId, "/query/resume", typeof approvedSQL === "string" ? approvedSQL : undefined);
     startStage(requestId, "request_received");
@@ -656,6 +662,104 @@ async function bootstrap() {
     }
   });
 
+  app.post("/query/review/cancel", requireAuth, requireRole("tech_team"), async (req: AuthenticatedRequest, res) => {
+    const requestId = randomUUID();
+    const { threadId, reason } = req.body ?? {};
+    const user = req.user;
+    const reviewSession = user && typeof threadId === "string" ? getReviewSession(threadId, user.userId) : null;
+    const reviewDatabase = reviewSession ? getDatabaseConfig(reviewSession.dbId) : undefined;
+
+    beginAudit(requestId, "/query/review/cancel", reviewSession?.question, {
+      dbId: reviewSession?.dbId,
+      dbDisplayName: reviewDatabase?.displayName,
+      userId: user?.userId,
+      userRole: user?.role,
+    });
+    startStage(requestId, "request_received");
+    stageSuccess(requestId, "request_received", {
+      endpoint: "/query/review/cancel",
+      method: "POST",
+      role: user?.role,
+      threadId,
+    });
+    startStage(requestId, "input_validation");
+
+    if (!user) {
+      stageError(requestId, "input_validation", "Authentication required.");
+      startStage(requestId, "request_completed");
+      stageError(requestId, "request_completed", "Request rejected: missing authenticated user.");
+      await completeAudit(requestId, "error", {
+        endpoint: "/query/review/cancel",
+        code: "AUTH_REQUIRED",
+      });
+      return res.status(401).json({
+        ...buildRequestError("Authentication required."),
+        error: "Authentication required.",
+        code: "AUTH_REQUIRED",
+      });
+    }
+
+    if (typeof threadId !== "string") {
+      stageError(requestId, "input_validation", "Missing 'threadId' in request body.");
+      startStage(requestId, "request_completed");
+      stageError(requestId, "request_completed", "Review cancel validation failed.");
+      await completeAudit(requestId, "error", {
+        endpoint: "/query/review/cancel",
+        code: "BAD_REQUEST",
+      });
+      return res.status(400).json(buildRequestError("Missing 'threadId' in request body."));
+    }
+
+    stageSuccess(requestId, "input_validation", {
+      threadId,
+      hasReason: typeof reason === "string" && reason.trim().length > 0,
+    });
+
+    const cancelledSession = cancelReviewSession(threadId, user.userId);
+    if (!cancelledSession) {
+      startStage(requestId, "request_completed");
+      stageError(requestId, "request_completed", "Review session not found or has expired.", {
+        endpoint: "/query/review/cancel",
+        threadId,
+      });
+      await completeAudit(requestId, "error", {
+        endpoint: "/query/review/cancel",
+        code: "REVIEW_SESSION_NOT_FOUND",
+      });
+      return res.status(404).json({
+        ...buildRequestError("Review session not found or has expired."),
+        error: "Review session not found or has expired.",
+        code: "REVIEW_SESSION_NOT_FOUND",
+      });
+    }
+
+    startStage(requestId, "review_cancelled");
+    stageCancelled(requestId, "review_cancelled", {
+      threadId,
+      reason: typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : "Execution cancelled by tech team user.",
+    });
+    startStage(requestId, "request_completed");
+    stageCancelled(requestId, "request_completed", {
+      status: "cancelled",
+      threadId,
+    });
+
+    await completeAudit(requestId, "cancelled", {
+      endpoint: "/query/review/cancel",
+      threadId,
+      dbId: cancelledSession.dbId,
+      reason: typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : "Execution cancelled by tech team user.",
+    });
+
+    return res.json({
+      requestId,
+      status: "cancelled",
+      threadId,
+      question: cancelledSession.question,
+      detail: `The generated SQL for \"${cancelledSession.question}\" was not executed. Submit the question again to regenerate a draft.`,
+    });
+  });
+
   app.get("/query/status/:threadId", requireAuth, requireRole("tech_team"), (req: AuthenticatedRequest, res) => {
     const user = req.user;
     if (!user) {
@@ -692,7 +796,6 @@ async function bootstrap() {
     const { question, dbId } = req.body;
     const conversationId = resolveConversationId(req.body?.conversationId);
     const auditConfig = getAuditConfig();
-    const user = (req as AuthenticatedRequest).user;
 
     beginAudit(requestId, "/query", typeof question === "string" ? question : undefined);
     startStage(requestId, "request_received");
@@ -847,7 +950,15 @@ async function bootstrap() {
     const conversationId = resolveConversationId(req.body?.conversationId);
     const user = req.user;
 
-    beginAudit(requestId, "/query/stream", typeof question === "string" ? question : undefined);
+    const requestedDbId = typeof dbId === "string" ? dbId : undefined;
+    const requestedDatabase = requestedDbId ? getDatabaseConfig(requestedDbId) : undefined;
+
+    beginAudit(requestId, "/query/stream", typeof question === "string" ? question : undefined, {
+      dbId: requestedDbId,
+      dbDisplayName: requestedDatabase?.displayName,
+      userId: user?.userId,
+      userRole: user?.role,
+    });
     startStage(requestId, "request_received");
     stageSuccess(requestId, "request_received", {
       endpoint: "/query/stream",
@@ -984,8 +1095,8 @@ async function bootstrap() {
   app.get("/logs/api", requireAuth, requireRole("tech_team"), async (req, res) => {
     const auditConfig = getAuditConfig();
 
-    if (!auditConfig.uiEnabled) {
-      return res.status(404).json({ error: "Logs UI is disabled in current environment." });
+    if (auditConfig.appEnv !== "dev" || !auditConfig.uiEnabled) {
+      return res.status(403).json({ error: "Logs API is available only in dev mode." });
     }
 
     const page = Math.max(1, Number.parseInt(String(req.query.page || "1"), 10) || 1);
@@ -994,9 +1105,17 @@ async function bootstrap() {
     const result = await queryAuditLogs({
       q: typeof req.query.q === "string" ? req.query.q : undefined,
       stage: typeof req.query.stage === "string" ? req.query.stage : undefined,
-      status: req.query.status === "success" || req.query.status === "error" ? req.query.status : undefined,
+      status:
+        req.query.status === "success" || req.query.status === "error" || req.query.status === "cancelled"
+          ? req.query.status
+          : undefined,
       from: typeof req.query.from === "string" ? req.query.from : undefined,
       to: typeof req.query.to === "string" ? req.query.to : undefined,
+      dbId: typeof req.query.dbId === "string" ? req.query.dbId : undefined,
+      env:
+        req.query.env === "dev" || req.query.env === "prod" || req.query.env === "all"
+          ? req.query.env
+          : "all",
       page,
       pageSize,
     });

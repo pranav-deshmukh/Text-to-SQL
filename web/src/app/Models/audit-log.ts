@@ -7,7 +7,7 @@ export interface AuditStageError {
 
 export interface AuditStageRecord {
   stage: string;
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'cancelled';
   timestamp: string;
   durationMs?: number;
   details?: Record<string, unknown>;
@@ -18,9 +18,13 @@ export interface AuditRequestRecord {
   requestId: string;
   endpoint: string;
   appEnv: 'dev' | 'prod';
+  dbId?: string;
+  dbDisplayName?: string;
+  userId?: string;
+  userRole?: string;
   startedAt: string;
   completedAt?: string;
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'cancelled';
   question?: string;
   stages: AuditStageRecord[];
   summary?: Record<string, unknown>;

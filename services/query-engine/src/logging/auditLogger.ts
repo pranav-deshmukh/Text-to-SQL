@@ -1,8 +1,7 @@
-import fs from "fs/promises";
-import path from "path";
 import { getAuditConfig } from "../config/auditConfig";
+import { writeAuditRecord } from "./auditDbStore";
 
-export type AuditStageStatus = "success" | "error";
+export type AuditStageStatus = "success" | "error" | "cancelled";
 
 export interface AuditStageRecord {
   stage: string;
@@ -24,15 +23,27 @@ export interface AuditRequestRecord {
   appEnv: "dev" | "prod";
   startedAt: string;
   completedAt?: string;
-  status: "success" | "error";
+  status: AuditStageStatus;
+  dbId?: string;
+  dbDisplayName?: string;
+  userId?: string;
+  userRole?: string;
   question?: string;
   stages: AuditStageRecord[];
   summary?: Record<string, unknown>;
 }
 
+export interface AuditRequestContext {
+  dbId?: string;
+  dbDisplayName?: string;
+  userId?: string;
+  userRole?: string;
+}
+
 interface InFlightAudit {
   requestId: string;
   endpoint: string;
+  context?: AuditRequestContext;
   question?: string;
   startedAt: Date;
   stages: AuditStageRecord[];
@@ -77,33 +88,14 @@ function sanitize(value: unknown, maxTextLength: number): unknown {
   return value;
 }
 
-async function appendMarkdownEntry(entry: AuditRequestRecord): Promise<void> {
-  const config = getAuditConfig();
-  if (!config.enabled) return;
-
-  await fs.mkdir(config.logDir, { recursive: true });
-  const day = entry.startedAt.slice(0, 10);
-  const filePath = path.join(config.logDir, `${day}.md`);
-
-  const markdown = [
-    "<!-- AUDIT_ENTRY_START -->",
-    "```json",
-    JSON.stringify(entry, null, 2),
-    "```",
-    "<!-- AUDIT_ENTRY_END -->",
-    "",
-  ].join("\n");
-
-  await fs.appendFile(filePath, markdown, "utf-8");
-}
-
-export function beginAudit(requestId: string, endpoint: string, question?: string): void {
+export function beginAudit(requestId: string, endpoint: string, question?: string, context?: AuditRequestContext): void {
   const config = getAuditConfig();
   if (!config.enabled) return;
 
   inFlight.set(requestId, {
     requestId,
     endpoint,
+    context,
     question,
     startedAt: new Date(),
     stages: [],
@@ -147,6 +139,7 @@ export function stageError(requestId: string, stage: string, error: unknown, det
     ? {
         name: error.name,
         message: error.message,
+        code: (error as Error & { code?: string }).code,
         stack: config.includeStack ? clampText(error.stack || "", config.maxTextLength) : undefined,
       }
     : {
@@ -163,9 +156,26 @@ export function stageError(requestId: string, stage: string, error: unknown, det
   });
 }
 
+export function stageCancelled(requestId: string, stage: string, details?: Record<string, unknown>): void {
+  const config = getAuditConfig();
+  const current = inFlight.get(requestId);
+  if (!config.enabled || !current) return;
+
+  const started = current.stageStarts.get(stage);
+  const durationMs = started ? Date.now() - started : undefined;
+
+  current.stages.push({
+    stage,
+    status: "cancelled",
+    timestamp: new Date().toISOString(),
+    durationMs,
+    details: sanitize(details, config.maxTextLength) as Record<string, unknown> | undefined,
+  });
+}
+
 export async function completeAudit(
   requestId: string,
-  status: "success" | "error",
+  status: AuditStageStatus,
   summary?: Record<string, unknown>,
 ): Promise<void> {
   const config = getAuditConfig();
@@ -179,11 +189,18 @@ export async function completeAudit(
     startedAt: current.startedAt.toISOString(),
     completedAt: new Date().toISOString(),
     status,
+    dbId: current.context?.dbId,
+    dbDisplayName: current.context?.dbDisplayName,
+    userId: current.context?.userId,
+    userRole: current.context?.userRole,
     question: sanitize(current.question, config.maxTextLength) as string | undefined,
     stages: current.stages,
     summary: sanitize(summary, config.maxTextLength) as Record<string, unknown> | undefined,
   };
 
-  await appendMarkdownEntry(entry);
-  inFlight.delete(requestId);
+  try {
+    await writeAuditRecord(entry);
+  } finally {
+    inFlight.delete(requestId);
+  }
 }

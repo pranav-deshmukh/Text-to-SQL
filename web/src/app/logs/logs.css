@@ -36,7 +36,7 @@
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -67,6 +67,10 @@
 
 .summary-card.error strong {
   color: #ff8f8f;
+}
+
+.summary-card.cancelled strong {
+  color: #f5d36c;
 }
 
 .filters {
@@ -197,6 +201,10 @@
   color: #ff8f8f;
 }
 
+.cancelled-status {
+  color: #f5d36c;
+}
+
 .id {
   font-family: monospace;
   font-size: 12px;
@@ -251,6 +259,15 @@
 
 .stage-dot-error {
   background: #ff8f8f;
+}
+
+.stage-dot-cancelled {
+  background: #f5d36c;
+}
+
+.cancelled-banner {
+  margin: 0 0 8px;
+  color: #f5d36c;
 }
 
 .stage-status {

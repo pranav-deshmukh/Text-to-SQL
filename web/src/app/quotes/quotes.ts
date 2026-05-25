@@ -246,24 +246,35 @@ export class QuotesComponent implements OnInit, OnDestroy {
     }
   }
 
-  cancelReview(): void {
-    if (!this.pendingReview) {
+  async cancelReview(): Promise<void> {
+    if (!this.pendingReview || this.reviewLoading) {
       return;
     }
 
-    const cancelledQuestion = this.pendingReview.question;
-    this.pendingReview = null;
-    this.messages = [
-      ...this.messages,
-      {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        error: 'SQL review cancelled.',
-        detail: `The generated SQL for "${cancelledQuestion}" was not executed. Submit the question again to regenerate a draft.`,
-        timestamp: new Date(),
-      },
-    ];
-    this.scrollToBottomSoon();
+    const reviewDraft = this.pendingReview;
+    this.reviewLoading = true;
+
+    try {
+      const response = await firstValueFrom(this.queryService.cancelReview(reviewDraft.threadId));
+      this.pendingReview = null;
+      this.messages = [
+        ...this.messages,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          error: 'SQL review cancelled.',
+          detail:
+            response.detail ||
+            `The generated SQL for "${reviewDraft.question}" was not executed. Submit the question again to regenerate a draft.`,
+          timestamp: new Date(),
+        },
+      ];
+    } catch (error) {
+      this.messages = [...this.messages, this.createErrorMessage(error)];
+    } finally {
+      this.reviewLoading = false;
+      this.scrollToBottomSoon();
+    }
   }
 
   logout(): void {
