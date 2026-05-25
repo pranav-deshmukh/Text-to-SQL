@@ -94,6 +94,34 @@
   transform: scale(0.99);
 }
 
+.view-logs-button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.view-logs-button:hover {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(20, 200, 193, 0.25);
+}
+
+.logs-icon {
+  font-size: 14px;
+}
+
 .new-chat-icon {
   display: inline-grid;
   place-items: center;
@@ -134,11 +162,9 @@
 
 .db-dropdown-shell {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 16px;
   align-items: center;
   gap: 10px;
   min-height: 50px;
-  padding: 0 14px;
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.88);
@@ -349,6 +375,207 @@
     linear-gradient(180deg, #ece7d6 0%, #e7e1d0 100%);
 }
 
+.top-navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  min-height: 56px;
+  padding: 10px 28px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+  background: linear-gradient(180deg, rgba(236, 231, 214, 0.97) 0%, rgba(231, 225, 208, 0.9) 100%);
+  backdrop-filter: blur(10px);
+  z-index: 4;
+}
+
+.top-navbar-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.top-navbar-db {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.top-navbar-db .db-dropdown-shell {
+  position: relative;
+  min-height: 40px;
+  min-width: 160px;
+}
+
+.top-navbar-db .db-dropdown-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.top-navbar-db .db-dropdown-trigger:hover:not(:disabled),
+.top-navbar-db .db-dropdown-trigger:focus-visible {
+  border-color: rgba(20, 200, 193, 0.4);
+  box-shadow: 0 0 0 4px rgba(20, 200, 193, 0.12);
+  background: #ffffff;
+}
+
+.top-navbar-db .db-dropdown-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.top-navbar-db .db-trigger-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.top-navbar-db .db-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.top-navbar-db .db-trigger-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.2;
+  color: rgba(74, 85, 104, 0.6);
+}
+
+.top-navbar-db .db-dropdown-icon,
+.top-navbar-db .db-dropdown-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(74, 85, 104, 0.7);
+}
+
+.top-navbar-db .db-dropdown-icon {
+  font-size: 13px;
+}
+
+.top-navbar-db .db-dropdown-arrow {
+  font-size: 16px;
+  pointer-events: none;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.top-navbar-db .db-dropdown-arrow.open {
+  transform: rotate(180deg);
+}
+
+.top-navbar-db .db-dropdown-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.top-navbar-db .db-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 280px;
+  max-height: min(320px, calc(100vh - 120px));
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid rgba(122, 162, 154, 0.32);
+  border-radius: 14px;
+  /* background: linear-gradient(180deg, #f7f3e8 0%, #efe8d6 100%); */
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16);
+  z-index: 8;
+}
+
+.db-dropdown-menu {
+  background-color: white !important;
+}
+
+.db-dropdown-option {
+  background-color: white !important;
+}
+
+.top-navbar-db .db-dropdown-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.top-navbar-db .db-dropdown-option:hover {
+  background: rgba(20, 200, 193, 0.12);
+}
+
+.top-navbar-db .db-dropdown-option.active {
+  background: rgba(20, 200, 193, 0.16);
+  color: #0b7b77;
+}
+
+.top-navbar-db .db-option-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.top-navbar-db .db-option-title,
+.top-navbar-db .db-option-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top-navbar-db .db-option-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.top-navbar-db .db-option-meta {
+  color: rgba(74, 85, 104, 0.7);
+  font-size: 11px;
+}
+
+.top-navbar-db .db-option-check {
+  width: 18px;
+  text-align: center;
+  color: var(--teal-primary);
+  font-weight: 700;
+}
+
+.top-navbar-db .db-dropdown-empty {
+  padding: 10px 12px;
+  color: rgba(74, 85, 104, 0.7);
+  font-size: 12px;
+}
+
 .chat-scroll {
   flex: 1;
   min-height: 0;
@@ -362,27 +589,6 @@
   max-width: 980px;
   margin: 0 auto;
   padding-bottom: 32px;
-}
-
-.chat-titlebar {
-  display: flex;
-  align-items: center;
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  min-height: 72px;
-  margin-bottom: 24px;
-  padding: 10px 6px 14px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
-  background: linear-gradient(180deg, rgba(236, 231, 214, 0.97) 0%, rgba(231, 225, 208, 0.9) 100%);
-  backdrop-filter: blur(10px);
-}
-
-.chat-titlebar h1 {
-  margin: 0;
-  font-size: 22px;
-  line-height: 1.2;
-  color: var(--text-primary);
 }
 
 .empty-state {
@@ -658,8 +864,8 @@
     padding: 18px 18px 0;
   }
 
-  .chat-titlebar {
-    padding-top: 8px;
+  .top-navbar {
+    padding: 10px 18px;
   }
 
   .composer-shell {

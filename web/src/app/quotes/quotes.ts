@@ -45,6 +45,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
   conversations: ChatConversationSummary[] = [];
   pendingReview: SqlReviewDraft | null = null;
   profileMenuOpen = false;
+  dbMenuOpen = false;
   activeConversationId: string | null = null;
   showLogsButton = environment.enableLogsUi;
 
@@ -76,6 +77,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
   @HostListener('document:click')
   closeProfileMenu(): void {
     this.profileMenuOpen = false;
+    this.dbMenuOpen = false;
   }
 
   get isTechTeam(): boolean {
@@ -96,6 +98,18 @@ export class QuotesComponent implements OnInit, OnDestroy {
     }
 
     return this.conversations.find((item) => item.conversationId === this.activeConversationId)?.title || 'Saved chat';
+  }
+
+  get currentDatabaseLabel(): string {
+    if (this.databasesLoading) {
+      return 'Loading databases...';
+    }
+
+    if (!this.selectedDbId) {
+      return 'Select a database';
+    }
+
+    return this.getSelectedDbName();
   }
 
   get canSubmit(): boolean {
@@ -140,6 +154,26 @@ export class QuotesComponent implements OnInit, OnDestroy {
     }
 
     await this.router.navigate(['/chat', conversationId]);
+  }
+
+  toggleDbMenu(event: MouseEvent): void {
+    event.stopPropagation();
+
+    if (this.databasesLoading || !this.canChangeDatabase) {
+      return;
+    }
+
+    this.dbMenuOpen = !this.dbMenuOpen;
+  }
+
+  selectDatabase(dbId: string): void {
+    if (!this.canChangeDatabase || this.selectedDbId === dbId) {
+      this.dbMenuOpen = false;
+      return;
+    }
+
+    this.selectedDbId = dbId;
+    this.dbMenuOpen = false;
   }
 
   toggleProfileMenu(event: MouseEvent): void {
@@ -316,6 +350,13 @@ export class QuotesComponent implements OnInit, OnDestroy {
 
   private async handleRouteChange(params: ParamMap): Promise<void> {
     const conversationId = params.get('conversationId');
+
+    // If we already have this conversation's messages in memory (e.g. after a mutation
+    // that navigated here), skip reloading to preserve runtime-only state like agentSteps.
+    if (conversationId && conversationId === this.activeConversationId && this.messages.length > 0) {
+      return;
+    }
+
     this.activeConversationId = conversationId;
     this.pendingReview = null;
 

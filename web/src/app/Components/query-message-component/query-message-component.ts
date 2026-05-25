@@ -27,6 +27,7 @@ export class QueryMessageComponent implements OnChanges {
   ];
 
   showSql = false;
+  showWorkflow = true;
   expandedAttempts = new Set<number>();
   downloadMenuOpen = false;
   downloadMenuDirection: DownloadMenuDirection = 'down';
@@ -41,7 +42,7 @@ export class QueryMessageComponent implements OnChanges {
   constructor(
     private readonly resultExportService: ResultExportService,
     private readonly hostElement: ElementRef<HTMLElement>,
-  ) {}
+  ) { }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (!changes['message']) {
@@ -61,6 +62,15 @@ export class QueryMessageComponent implements OnChanges {
       return;
     }
 
+    // Auto-collapse workflow when all steps are completed
+    const allSteps = this.message.agentSteps || [];
+    const hasRunning = allSteps.some((s) => s.status === 'running');
+    if (!hasRunning && allSteps.length > 0) {
+      this.showWorkflow = false;
+    } else {
+      this.showWorkflow = true;
+    }
+
     // Keep the latest attempt expanded by default.
     const latestIndex = attempts.length - 1;
     this.expandedAttempts = new Set<number>([latestIndex]);
@@ -68,6 +78,10 @@ export class QueryMessageComponent implements OnChanges {
 
   toggleSql(): void {
     this.showSql = !this.showSql;
+  }
+
+  toggleWorkflow(): void {
+    this.showWorkflow = !this.showWorkflow;
   }
 
   @HostListener('document:click', ['$event'])
@@ -107,7 +121,9 @@ export class QueryMessageComponent implements OnChanges {
     }
 
     this.downloadMenuOpen = true;
-    requestAnimationFrame(() => this.updateDownloadMenuPosition());
+    setTimeout(() => {
+      this.updateDownloadMenuPosition();
+    }, 0);
   }
 
   async downloadResults(format: ExportFormat, event: MouseEvent): Promise<void> {
@@ -322,17 +338,21 @@ export class QueryMessageComponent implements OnChanges {
   calculateDownloadMenuDirection(
     triggerRect: Pick<DOMRect, 'top' | 'bottom'>,
     menuHeight: number,
-    viewportHeight: number,
+    viewportBottom: number,
   ): DownloadMenuDirection {
+
     const requiredSpace = menuHeight + this.downloadMenuOffset;
-    const spaceBelow = viewportHeight - triggerRect.bottom;
+
+    const spaceBelow = viewportBottom - triggerRect.bottom;
     const spaceAbove = triggerRect.top;
 
-    if (spaceBelow >= requiredSpace || spaceBelow >= spaceAbove) {
-      return 'down';
+    // Open upward if below space is insufficient
+    // and above has more usable space
+    if (spaceBelow < requiredSpace && spaceAbove > spaceBelow) {
+      return 'up';
     }
 
-    return 'up';
+    return 'down';
   }
 
   get showErrorCard(): boolean {
@@ -469,20 +489,42 @@ export class QueryMessageComponent implements OnChanges {
     const menuElement = this.downloadMenu?.nativeElement;
 
     if (!triggerElement || !menuElement) {
-      this.downloadMenuDirection = 'down';
       return;
     }
 
-    const footerEl = document.querySelector('.footer-shell');
-    const effectiveBottom = footerEl
+    const triggerRect = triggerElement.getBoundingClientRect();
+
+    const footerEl = document.querySelector('.composer-shell');
+    const viewportBottom = footerEl
       ? footerEl.getBoundingClientRect().top
       : window.innerHeight;
 
-    this.downloadMenuDirection = this.calculateDownloadMenuDirection(
-      triggerElement.getBoundingClientRect(),
-      menuElement.offsetHeight,
-      effectiveBottom,
+    const menuRect = menuElement.getBoundingClientRect();
+
+    const menuHeight = menuRect.height;
+    const menuWidth = menuRect.width;
+
+    const direction = this.calculateDownloadMenuDirection(
+      triggerRect,
+      menuHeight,
+      viewportBottom,
     );
+
+    this.downloadMenuDirection = direction;
+
+    const left = triggerRect.right - menuWidth;
+
+    let top: number;
+
+    if (direction === 'up') {
+      top = triggerRect.top - menuHeight - this.downloadMenuOffset;
+    } else {
+      top = triggerRect.bottom + this.downloadMenuOffset;
+    }
+
+    menuElement.style.left = `${left}px`;
+    menuElement.style.top = `${top}px`;
+    menuElement.style.visibility = 'visible';
   }
 
   toggleAttempt(index: number): void {

@@ -191,9 +191,8 @@ app-query-message-component .download-trigger-arrow.expanded {
 
 app-query-message-component .download-menu {
   position: absolute;
-  left: calc(100% + 20px);
-  top: 50%;
-  transform: translateY(-50%);
+  right: 0;
+  top: calc(100% + 6px);
   width: 230px;
   max-height: min(320px, calc(100vh - 32px));
   overflow-y: auto;
@@ -206,8 +205,8 @@ app-query-message-component .download-menu {
 }
 
 app-query-message-component .download-dropdown.open-up .download-menu {
-  top: 50%;
-  bottom: auto;
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 
 app-query-message-component .download-option {
