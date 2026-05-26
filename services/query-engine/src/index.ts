@@ -531,8 +531,14 @@ async function bootstrap() {
     const user = req.user;
     const auditConfig = getAuditConfig();
     const existingSession = user && typeof threadId === "string" ? getReviewSession(threadId, user.userId) : null;
+    const existingDatabase = existingSession ? getDatabaseConfig(existingSession.dbId) : undefined;
 
-    beginAudit(requestId, "/query/resume", typeof approvedSQL === "string" ? approvedSQL : undefined);
+    beginAudit(requestId, "/query/resume", typeof approvedSQL === "string" ? approvedSQL : undefined, {
+      dbId: existingSession?.dbId,
+      dbDisplayName: existingDatabase?.displayName,
+      userId: user?.userId,
+      userRole: user?.role,
+    });
     startStage(requestId, "request_received");
     stageSuccess(requestId, "request_received", {
       endpoint: "/query/resume",
@@ -571,6 +577,7 @@ async function bootstrap() {
     stageSuccess(requestId, "input_validation", {
       threadId,
       sqlLength: approvedSQL.length,
+      dbId: existingSession?.dbId,
     });
 
     try {

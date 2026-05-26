@@ -15,24 +15,10 @@
           <span>New chat</span>
         </button>
 
-        <div class="sidebar-section">
-          <div class="section-label">Database</div>
-          <div class="db-panel">
-            <div class="db-dropdown-shell">
-              <span class="db-dropdown-icon">🗂</span>
-              <select
-                [(ngModel)]="selectedDbId"
-                [disabled]="databasesLoading || !canChangeDatabase"
-                class="db-dropdown"
-              >
-                <option value="" disabled>{{ databasesLoading ? 'Loading databases...' : 'Select a database' }}</option>
-                <option *ngFor="let db of databases" [value]="db.dbId">{{ db.displayName }}</option>
-              </select>
-              <span class="db-dropdown-arrow">⌄</span>
-            </div>
-            <div class="db-caption" *ngIf="selectedDbId">{{ getSelectedDbName() }}</div>
-          </div>
-        </div>
+        <button *ngIf="showLogsButton && isTechTeam" type="button" class="view-logs-button" [routerLink]="['/logs']">
+          <span class="logs-icon">📋</span>
+          <span>View logs</span>
+        </button>
 
         <div class="sidebar-section chat-history-section">
           <div class="section-label">Chats</div>
@@ -43,13 +29,10 @@
             Your saved chats will appear here.
           </div>
 
-          <button
-            *ngFor="let conversation of conversations; trackBy: trackByConversationId"
-            type="button"
+          <button *ngFor="let conversation of conversations; trackBy: trackByConversationId" type="button"
             class="conversation-item"
             [class.conversation-item-active]="isConversationActive(conversation.conversationId)"
-            (click)="openConversation(conversation.conversationId)"
-          >
+            (click)="openConversation(conversation.conversationId)">
             <span class="conversation-title">{{ conversation.title }}</span>
           </button>
         </div>
@@ -67,43 +50,69 @@
       </button>
 
       <div *ngIf="profileMenuOpen" class="profile-menu">
-        <a *ngIf="showLogsButton && isTechTeam" class="profile-menu-link" [routerLink]="['/logs']">View logs</a>
         <button type="button" class="profile-menu-button" (click)="logout()">Logout</button>
       </div>
     </div>
   </aside>
 
   <section class="chat-shell">
+    <div class="top-navbar">
+      <h1 class="top-navbar-title">{{ currentConversationTitle }}</h1>
+      <div class="top-navbar-db" (click)="$event.stopPropagation()">
+        <div class="db-dropdown-shell">
+          <button type="button" class="db-dropdown-trigger" [disabled]="databasesLoading || !canChangeDatabase"
+            [attr.aria-expanded]="dbMenuOpen" (click)="toggleDbMenu($event)">
+            <div class="db-trigger-content">
+              <span class="db-trigger-label">
+                {{ currentDatabaseLabel }}
+              </span>
+            </div>
+
+            <span class="db-dropdown-arrow" [class.open]="dbMenuOpen">
+              ▾
+            </span>
+          </button>
+
+          <div *ngIf="dbMenuOpen" class="db-dropdown-menu">
+            <button *ngFor="let db of databases" type="button" class="db-dropdown-option"
+              [class.active]="db.dbId === selectedDbId" (click)="selectDatabase(db.dbId)">
+              <span class="db-option-copy">
+                <span class="db-option-title">{{ db.displayName }}</span>
+                <span class="db-option-meta">{{ db.dbId }}</span>
+              </span>
+              <span class="db-option-check">{{ db.dbId === selectedDbId ? '✓' : '' }}</span>
+            </button>
+
+            <div *ngIf="!databasesLoading && databases.length === 0" class="db-dropdown-empty">
+              No databases available
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="chat-scroll">
       <div class="chat-content">
-        <section class="chat-titlebar">
-          <h1>{{ currentConversationTitle }}</h1>
-        </section>
 
         <section *ngIf="!historyLoading && messages.length === 0" class="empty-state">
           <div class="hero-icon">⚡</div>
           <h2>Ask anything about your data</h2>
           <p>
-            {{ isTechTeam ? 'Review generated SQL, inspect context, and execute safely.' : 'Natural language → validated results, with saved chats you can revisit anytime.' }}
+            {{ isTechTeam ? 'Review generated SQL, inspect context, and execute safely.' : 'Natural language → validated
+            results, with saved chats you can revisit anytime.' }}
           </p>
 
           <div class="suggestion-list" *ngIf="selectedDbId">
-            <button
-              *ngFor="let suggestion of suggestions"
-              type="button"
-              class="suggestion-chip"
-              (click)="applySuggestion(suggestion)"
-            >
+            <button *ngFor="let suggestion of suggestions" type="button" class="suggestion-chip"
+              (click)="applySuggestion(suggestion)">
               {{ suggestion }}
             </button>
           </div>
         </section>
 
         <section class="message-list" *ngIf="!historyLoading">
-          <app-query-message-component
-            *ngFor="let message of messages; trackBy: trackByMessageId"
-            [message]="message"
-          ></app-query-message-component>
+          <app-query-message-component *ngFor="let message of messages; trackBy: trackByMessageId"
+            [message]="message"></app-query-message-component>
 
           <div *ngIf="loading" class="loading-row">
             <div class="loading-dots">
@@ -125,12 +134,8 @@
         </section>
 
         <section *ngIf="pendingReview && !historyLoading" class="review-section">
-          <app-sql-review-panel
-            [draft]="pendingReview"
-            [loading]="reviewLoading"
-            (runSql)="runReviewedSql($event)"
-            (cancel)="cancelReview()"
-          ></app-sql-review-panel>
+          <app-sql-review-panel [draft]="pendingReview" [loading]="reviewLoading" (runSql)="runReviewedSql($event)"
+            (cancel)="cancelReview()"></app-sql-review-panel>
         </section>
 
         <div *ngIf="historyLoading" class="history-loading">
@@ -150,13 +155,9 @@
       <form class="composer" (ngSubmit)="submitQuery()">
         <div class="input-shell" [class.input-shell-disabled]="!canSubmit">
           <span class="input-icon">⌕</span>
-          <input
-            type="text"
-            name="query"
-            [(ngModel)]="input"
+          <input type="text" name="query" [(ngModel)]="input"
             [placeholder]="pendingReview ? 'Finish or cancel the SQL review before starting another question...' : !selectedDbId ? 'Select a database before asking a question...' : 'Ask a question about your data...'"
-            [disabled]="!canSubmit"
-          />
+            [disabled]="!canSubmit" />
           <button *ngIf="input" type="button" class="clear-button" (click)="input = ''">×</button>
         </div>
 

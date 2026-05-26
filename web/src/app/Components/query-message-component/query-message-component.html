@@ -6,7 +6,12 @@
 
 <ng-template #assistantMessage>
   <div class="assistant-stack">
-    <div *ngIf="workflowAttempts.length" class="workflow-card">
+    <button *ngIf="workflowAttempts.length" type="button" class="workflow-toggle" (click)="toggleWorkflow()">
+      <span class="toggle-icon" [class.expanded]="showWorkflow">▶</span>
+      {{ showWorkflow ? 'Hide' : 'View' }} Agent Workflow
+    </button>
+
+    <div *ngIf="workflowAttempts.length && showWorkflow" class="workflow-card">
       <div class="workflow-title">
         <span class="workflow-title-icon">⚙</span>
         <span>AGENT WORKFLOW</span>
@@ -105,7 +110,7 @@
         <div class="results-meta">
           <span class="pill">{{ message.data.rowCount }} rows</span>
           <span>{{ selectedColumnCount }} / {{ message.data.columns.length }} columns</span>
-        </div>
+        </div>  
         <div class="results-actions">
           <span class="execution-time">
             <span class="success-dot">●</span>
