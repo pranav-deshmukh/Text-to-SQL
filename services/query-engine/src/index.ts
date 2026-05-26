@@ -17,6 +17,7 @@ import { authenticateUser, createUser, registerAuthStore } from "./auth/users";
 import {
   archiveUserConversation,
   createUserConversation,
+  deleteUserConversation,
   getUserConversation,
   listUserConversations,
   persistAgentError,
@@ -24,6 +25,7 @@ import {
   persistAssistantResult,
   persistReviewDraft,
   persistUserQuestion,
+  renameUserConversation,
   updatePersistedReviewMessage,
 } from "./chat/service";
 import { registerChatStore } from "./chat/repository";
@@ -256,13 +258,59 @@ async function bootstrap() {
     return res.json({ conversation });
   });
 
-  app.delete("/chats/:conversationId", requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.patch("/chats/:conversationId", requireAuth, async (req: AuthenticatedRequest, res) => {
+    if (!req.user) {
+      return res.status(401).json(buildRequestError("Authentication required."));
+    }
+
+    if (typeof req.body?.title !== "string") {
+      return res.status(400).json(buildRequestError("A conversation title is required."));
+    }
+
+    try {
+      const conversation = await renameUserConversation(req.user.userId, String(req.params.conversationId), req.body.title);
+      if (!conversation) {
+        return res.status(404).json({
+          ...buildRequestError("Conversation not found."),
+          error: "Conversation not found.",
+          code: "CHAT_NOT_FOUND",
+        });
+      }
+
+      return res.json({ conversation });
+    } catch (error) {
+      return res.status(400).json({
+        ...buildRequestError(error instanceof Error ? error.message : "Invalid conversation title."),
+        error: error instanceof Error ? error.message : "Invalid conversation title.",
+        code: "INVALID_CHAT_TITLE",
+      });
+    }
+  });
+
+  app.post("/chats/:conversationId/archive", requireAuth, async (req: AuthenticatedRequest, res) => {
     if (!req.user) {
       return res.status(401).json(buildRequestError("Authentication required."));
     }
 
     const archived = await archiveUserConversation(req.user.userId, String(req.params.conversationId));
     if (!archived) {
+      return res.status(404).json({
+        ...buildRequestError("Conversation not found."),
+        error: "Conversation not found.",
+        code: "CHAT_NOT_FOUND",
+      });
+    }
+
+    return res.status(204).send();
+  });
+
+  app.delete("/chats/:conversationId", requireAuth, async (req: AuthenticatedRequest, res) => {
+    if (!req.user) {
+      return res.status(401).json(buildRequestError("Authentication required."));
+    }
+
+    const deleted = await deleteUserConversation(req.user.userId, String(req.params.conversationId));
+    if (!deleted) {
       return res.status(404).json({
         ...buildRequestError("Conversation not found."),
         error: "Conversation not found.",

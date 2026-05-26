@@ -4,12 +4,16 @@ import {
   archiveConversation,
   appendMessage,
   createConversation,
+  deleteConversation,
   getConversation,
   listConversations,
+  renameConversation,
   updateConversationMetadata,
   updateMessage,
 } from "./repository";
 import { ChatConversationDetail, ChatConversationSummary, ChatMessageRecord } from "./types";
+
+const MAX_CONVERSATION_TITLE_LENGTH = 120;
 
 function truncateTitle(question: string): string {
   const trimmed = question.trim().replace(/\s+/g, " ");
@@ -18,6 +22,19 @@ function truncateTitle(question: string): string {
   }
 
   return `${trimmed.slice(0, 77).trim()}...`;
+}
+
+function normalizeConversationTitle(title: string): string {
+  const normalized = title.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    throw new Error("Conversation title is required.");
+  }
+
+  if (normalized.length > MAX_CONVERSATION_TITLE_LENGTH) {
+    return `${normalized.slice(0, MAX_CONVERSATION_TITLE_LENGTH - 3).trim()}...`;
+  }
+
+  return normalized;
 }
 
 export async function listUserConversations(userId: string): Promise<ChatConversationSummary[]> {
@@ -38,6 +55,18 @@ export async function createUserConversation(userId: string, selectedDbId?: stri
 
 export async function archiveUserConversation(userId: string, conversationId: string): Promise<boolean> {
   return archiveConversation(userId, conversationId);
+}
+
+export async function renameUserConversation(
+  userId: string,
+  conversationId: string,
+  title: string,
+): Promise<ChatConversationSummary | null> {
+  return renameConversation(userId, conversationId, normalizeConversationTitle(title));
+}
+
+export async function deleteUserConversation(userId: string, conversationId: string): Promise<boolean> {
+  return deleteConversation(userId, conversationId);
 }
 
 export async function ensureConversation(

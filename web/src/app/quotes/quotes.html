@@ -29,12 +29,56 @@
             Your saved chats will appear here.
           </div>
 
-          <button *ngFor="let conversation of conversations; trackBy: trackByConversationId" type="button"
-            class="conversation-item"
-            [class.conversation-item-active]="isConversationActive(conversation.conversationId)"
-            (click)="openConversation(conversation.conversationId)">
-            <span class="conversation-title">{{ conversation.title }}</span>
-          </button>
+          <div *ngFor="let conversation of conversations; trackBy: trackByConversationId" class="conversation-row">
+            <ng-container *ngIf="!isRenamingConversation(conversation.conversationId); else renameConversationTemplate">
+              <div class="conversation-item-shell">
+                <button type="button" class="conversation-item"
+                  [class.conversation-item-active]="isConversationActive(conversation.conversationId)"
+                  (click)="openConversation(conversation.conversationId)">
+                  <span class="conversation-title">{{ conversation.title }}</span>
+                </button>
+
+                <div class="conversation-actions" (click)="$event.stopPropagation()">
+                  <button type="button" class="conversation-menu-trigger"
+                    [class.conversation-menu-trigger-open]="isConversationMenuOpen(conversation.conversationId)"
+                    [attr.aria-expanded]="isConversationMenuOpen(conversation.conversationId)"
+                    (click)="toggleConversationMenu($event, conversation.conversationId)">
+                    ⋯
+                  </button>
+
+                  <div *ngIf="isConversationMenuOpen(conversation.conversationId)" class="conversation-menu">
+                    <button type="button" class="conversation-menu-button"
+                      (click)="startRenamingConversation($event, conversation)">
+                      Rename
+                    </button>
+                    <button type="button" class="conversation-menu-button"
+                      (click)="archiveConversation($event, conversation.conversationId)">
+                      Archive
+                    </button>
+                    <button type="button" class="conversation-menu-button conversation-menu-button-danger"
+                      (click)="requestDeleteConversation($event, conversation)">
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </ng-container>
+
+            <ng-template #renameConversationTemplate>
+              <form class="conversation-rename-form"
+                (click)="$event.stopPropagation()"
+                (ngSubmit)="submitRenameConversation($event, conversation.conversationId)">
+                <input type="text" [name]="'rename-' + conversation.conversationId" [(ngModel)]="renameDraft"
+                  class="conversation-rename-input" maxlength="120" autocomplete="off" />
+                <div class="conversation-rename-actions">
+                  <button type="submit" class="conversation-rename-button conversation-rename-button-save">Save</button>
+                  <button type="button" class="conversation-rename-button" (click)="cancelRenamingConversation($event)">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </ng-template>
+          </div>
         </div>
       </div>
     </div>
@@ -172,4 +216,25 @@
       </div>
     </footer>
   </section>
+
+  <div *ngIf="pendingDeleteConversation" class="delete-modal-backdrop" (click)="closeDeleteModal()">
+    <div class="delete-modal" (click)="$event.stopPropagation()">
+      <h2 class="delete-modal-title">Delete chat?</h2>
+      <p class="delete-modal-copy">
+        This will delete
+        <strong>{{ pendingDeleteConversation.title }}</strong>.
+      </p>
+      <p class="delete-modal-subcopy">
+        This action permanently removes the conversation and its saved messages.
+      </p>
+      <div class="delete-modal-actions">
+        <button type="button" class="delete-modal-button delete-modal-button-secondary" (click)="closeDeleteModal($event)">
+          Cancel
+        </button>
+        <button type="button" class="delete-modal-button delete-modal-button-danger" (click)="confirmDeleteConversation($event)">
+          Delete
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
