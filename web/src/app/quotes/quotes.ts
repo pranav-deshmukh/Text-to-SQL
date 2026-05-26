@@ -27,6 +27,7 @@ const locallyDeletedConversationIds = new Set<string>();
 })
 export class QuotesComponent implements OnInit, OnDestroy {
   @ViewChild('messagesEnd') private messagesEnd?: ElementRef<HTMLDivElement>;
+  private readonly sidebarStateStorageKey = 'queryassist.chats.sidebar.collapsed';
 
   readonly suggestions = [
     'Show the top 10 records by total value',
@@ -54,6 +55,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
   pendingDeleteConversation: ChatConversationSummary | null = null;
   activeConversationId: string | null = null;
   showLogsButton = environment.enableLogsUi;
+  sidebarCollapsed = this.readSidebarCollapsed();
 
   private routeSubscription?: Subscription;
 
@@ -106,6 +108,10 @@ export class QuotesComponent implements OnInit, OnDestroy {
 
   get currentModeLabel(): string {
     return this.isTechTeam ? 'Tech Team Mode' : 'End User Mode';
+  }
+
+  get currentUserInitial(): string {
+    return this.currentUsername.slice(0, 1).toUpperCase();
   }
 
   get currentConversationTitle(): string {
@@ -197,6 +203,16 @@ export class QuotesComponent implements OnInit, OnDestroy {
   toggleProfileMenu(event: MouseEvent): void {
     event.stopPropagation();
     this.profileMenuOpen = !this.profileMenuOpen;
+  }
+
+  toggleSidebar(event: MouseEvent): void {
+    event.stopPropagation();
+    this.sidebarCollapsed = !this.sidebarCollapsed;
+    localStorage.setItem(this.sidebarStateStorageKey, String(this.sidebarCollapsed));
+    this.profileMenuOpen = false;
+    this.dbMenuOpen = false;
+    this.conversationMenuOpenId = null;
+    this.cancelRenamingConversation();
   }
 
   async archiveActiveConversation(event: MouseEvent): Promise<void> {
@@ -967,5 +983,9 @@ export class QuotesComponent implements OnInit, OnDestroy {
         });
       });
     });
+  }
+
+  private readSidebarCollapsed(): boolean {
+    return localStorage.getItem(this.sidebarStateStorageKey) === 'true';
   }
 }

@@ -1,166 +1,284 @@
-<div class="logs-shell">
-  <header class="logs-header">
-    <div>
-      <h1>Developer Audit Logs</h1>
-      <p class="subtitle">Track full NL → SQL lifecycle with stage-by-stage outcomes.</p>
-    </div>
-    <a routerLink="/" class="back-link">← Back to Query</a>
-  </header>
+<div class="logs-page-shell" [class.logs-page-shell-collapsed]="sidebarCollapsed">
+  <aside class="logs-sidebar" [class.collapsed]="sidebarCollapsed">
+    <div class="logs-sidebar-scroll">
+      <div class="logs-sidebar-top">
+        <button
+          type="button"
+          class="sidebar-toggle"
+          (click)="toggleSidebar($event)"
+          [attr.aria-label]="sidebarCollapsed ? 'Expand logs navigation' : 'Collapse logs navigation'"
+          [title]="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+        >
+          <span class="sidebar-toggle-icon">{{ sidebarCollapsed ? '»' : '«' }}</span>
+        </button>
 
-  <section class="summary-grid" *ngIf="!loading && records.length > 0">
-    <article class="summary-card">
-      <span class="summary-label">Total Matched</span>
-      <strong>{{ total }}</strong>
-    </article>
-    <article class="summary-card success">
-      <span class="summary-label">Success</span>
-      <strong>{{ successCount }}</strong>
-    </article>
-    <article class="summary-card error">
-      <span class="summary-label">Errors</span>
-      <strong>{{ errorCount }}</strong>
-    </article>
-    <article class="summary-card cancelled">
-      <span class="summary-label">Cancelled</span>
-      <strong>{{ cancelledCount }}</strong>
-    </article>
-    <article class="summary-card">
-      <span class="summary-label">Shown</span>
-      <strong>{{ displayedCount }}</strong>
-    </article>
-  </section>
-
-  <section class="filters">
-    <div class="filter-field filter-search">
-      <label for="search">Search</label>
-      <input
-        id="search"
-        type="text"
-        [(ngModel)]="filters.q"
-        placeholder="request id, question, sql, error..."
-        name="search"
-      />
-    </div>
-
-    <div class="filter-field">
-      <label for="status">Status</label>
-      <select id="status" [(ngModel)]="filters.status" name="status">
-        <option value="">All</option>
-        <option value="success">Success</option>
-        <option value="error">Error</option>
-        <option value="cancelled">Cancelled</option>
-      </select>
-    </div>
-
-    <div class="filter-field">
-      <label for="stage">Stage</label>
-      <select id="stage" [(ngModel)]="filters.stage" name="stage">
-        <option value="">All</option>
-        <option *ngFor="let stage of stages" [value]="stage">{{ formatStageName(stage) }}</option>
-      </select>
-    </div>
-
-    <div class="filter-field">
-      <label for="database">Database</label>
-      <select id="database" [(ngModel)]="filters.dbId" name="database">
-        <option value="">All</option>
-        <option *ngFor="let database of databases" [value]="database.dbId">{{ database.displayName }}</option>
-      </select>
-    </div>
-
-    <div class="filter-field">
-      <label for="environment">Environment</label>
-      <select id="environment" [(ngModel)]="filters.env" name="environment">
-        <option value="all">All</option>
-        <option value="dev">Dev</option>
-        <option value="prod">Prod</option>
-      </select>
-    </div>
-
-    <div class="filter-field">
-      <label for="from">From</label>
-      <input id="from" type="date" [(ngModel)]="filters.from" name="from" />
-    </div>
-
-    <div class="filter-field">
-      <label for="to">To</label>
-      <input id="to" type="date" [(ngModel)]="filters.to" name="to" />
-    </div>
-
-    <div class="filter-actions">
-      <button type="button" (click)="applyFilters()" [disabled]="loading">Search</button>
-      <button type="button" class="secondary" (click)="resetFilters()" [disabled]="loading">Reset</button>
-    </div>
-  </section>
-
-  <p *ngIf="error" class="error">{{ error }}</p>
-  <p *ngIf="loading" class="hint">Loading logs...</p>
-
-  <section class="log-list" *ngIf="!loading && records.length > 0">
-    <article class="log-card" *ngFor="let record of records; trackBy: trackByRequestId">
-      <button class="log-head" type="button" (click)="toggleExpand(record.requestId)">
-        <div class="head-left">
-          <span class="status" [class.error-status]="record.status === 'error'" [class.cancelled-status]="record.status === 'cancelled'">
-            {{ record.status }}
-          </span>
-          <strong>{{ record.endpoint }}</strong>
-        </div>
-
-        <div class="head-middle">
-          <span class="id">{{ record.requestId }}</span>
-          <button class="copy-btn" type="button" (click)="copyRequestId(record.requestId, $event)">Copy ID</button>
-        </div>
-
-        <div class="head-right">
-          <span>{{ record.appEnv | uppercase }}</span>
-          <span>{{ record.dbDisplayName || record.dbId || '-' }}</span>
-          <span>{{ record.startedAt | date: 'medium' }}</span>
-          <span class="duration" *ngIf="record.completedAt">{{ getRequestDurationMs(record) }} ms</span>
-        </div>
-      </button>
-
-      <div *ngIf="expandedRequestId === record.requestId" class="log-body">
-        <div class="question-box">
-          <span class="label">Question</span>
-          <p>{{ record.question || '-' }}</p>
-        </div>
-
-        <p *ngIf="record.status === 'error'" class="error error-banner">
-          <strong>Failure summary:</strong> {{ getErrorSummary(record) }}
-        </p>
-
-        <p *ngIf="record.status === 'cancelled'" class="cancelled-banner">
-          <strong>Cancelled:</strong> This review was intentionally stopped before execution.
-        </p>
-
-        <div class="stages">
-          <div class="stage" *ngFor="let stage of record.stages">
-            <div class="stage-title">
-              <span class="stage-dot" [class.stage-dot-error]="stage.status === 'error'" [class.stage-dot-cancelled]="stage.status === 'cancelled'"></span>
-              <strong>{{ formatStageName(stage.stage) }}</strong>
-              <span class="stage-status" [class.error-status]="stage.status === 'error'" [class.cancelled-status]="stage.status === 'cancelled'">{{ stage.status }}</span>
-              <span class="stage-time">{{ stage.timestamp | date: 'mediumTime' }}</span>
-              <span class="duration" *ngIf="stage.durationMs">{{ stage.durationMs }} ms</span>
-            </div>
-            <p *ngIf="stage.error" class="error">
-              {{ stage.error.message }}
-            </p>
-
-            <details *ngIf="stage.details" class="stage-details">
-              <summary>Details</summary>
-              <pre>{{ stage.details | json }}</pre>
-            </details>
+        <div class="sidebar-brand" [attr.title]="sidebarCollapsed ? 'QueryAssist Logs' : null">
+          <div class="brand-mark">Q</div>
+          <div class="brand-copy" *ngIf="!sidebarCollapsed">
+            <div class="brand-title">QueryAssist</div>
+            <div class="brand-subtitle">Logs workspace</div>
           </div>
         </div>
+
+        <nav class="sidebar-nav" aria-label="Logs workspace navigation">
+          <button
+            type="button"
+            class="sidebar-nav-button"
+            (click)="goToChats()"
+            [attr.aria-label]="'Go to chats'"
+            [title]="sidebarCollapsed ? 'Go to chats' : null"
+          >
+            <span class="sidebar-nav-icon">💬</span>
+            <span class="sidebar-nav-label" *ngIf="!sidebarCollapsed">Go to chats</span>
+          </button>
+
+          <button
+            type="button"
+            class="sidebar-nav-button sidebar-nav-button-disabled"
+            disabled
+            [attr.aria-label]="'Archives coming soon'"
+            [title]="sidebarCollapsed ? 'Archives coming soon' : null"
+          >
+            <span class="sidebar-nav-icon">🗃</span>
+            <span class="sidebar-nav-label" *ngIf="!sidebarCollapsed">Go to archives</span>
+            <span class="sidebar-nav-meta" *ngIf="!sidebarCollapsed">Soon</span>
+          </button>
+        </nav>
       </div>
-    </article>
+    </div>
+
+    <div class="sidebar-footer" (click)="$event.stopPropagation()">
+      <button
+        type="button"
+        class="profile-trigger"
+        (click)="toggleProfileMenu($event)"
+        [attr.aria-label]="sidebarCollapsed ? 'Open profile menu' : null"
+        [title]="sidebarCollapsed ? currentUsername : null"
+      >
+        <div class="profile-avatar">{{ currentUserInitial }}</div>
+        <div class="profile-copy" *ngIf="!sidebarCollapsed">
+          <span class="profile-name">{{ currentUsername }}</span>
+          <span class="profile-role">{{ currentModeLabel }}</span>
+        </div>
+        <span class="profile-more" *ngIf="!sidebarCollapsed">⋯</span>
+      </button>
+
+      <div *ngIf="profileMenuOpen" class="profile-menu" [class.collapsed-menu]="sidebarCollapsed">
+        <button type="button" class="profile-menu-button" (click)="logout()">Logout</button>
+      </div>
+    </div>
+  </aside>
+
+  <section class="logs-main-shell">
+    <div class="logs-shell">
+      <header class="logs-header">
+        <div>
+          <h1>Developer Audit Logs</h1>
+          <p class="subtitle">Track full NL → SQL lifecycle with stage-by-stage outcomes.</p>
+        </div>
+      </header>
+
+      <section class="summary-grid" *ngIf="!loading && records.length > 0">
+        <article class="summary-card">
+          <span class="summary-label">Total Matched</span>
+          <strong>{{ total }}</strong>
+        </article>
+        <article class="summary-card success">
+          <span class="summary-label">Success</span>
+          <strong>{{ successCount }}</strong>
+        </article>
+        <article class="summary-card error">
+          <span class="summary-label">Errors</span>
+          <strong>{{ errorCount }}</strong>
+        </article>
+        <article class="summary-card cancelled">
+          <span class="summary-label">Cancelled</span>
+          <strong>{{ cancelledCount }}</strong>
+        </article>
+        <article class="summary-card">
+          <span class="summary-label">Shown</span>
+          <strong>{{ displayedCount }}</strong>
+        </article>
+      </section>
+
+      <section class="filters">
+        <div class="filter-field filter-search">
+          <label for="search">Search</label>
+          <input
+            id="search"
+            type="text"
+            [(ngModel)]="filters.q"
+            placeholder="request id, question, sql, error..."
+            name="search"
+          />
+        </div>
+
+        <div class="filter-field">
+          <label for="status">Status</label>
+          <select id="status" [(ngModel)]="filters.status" name="status">
+            <option value="">All</option>
+            <option value="success">Success</option>
+            <option value="error">Error</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label for="stage">Stage</label>
+          <select id="stage" [(ngModel)]="filters.stage" name="stage">
+            <option value="">All</option>
+            <option *ngFor="let stage of stages" [value]="stage">{{ formatStageName(stage) }}</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label for="database">Database</label>
+          <select id="database" [(ngModel)]="filters.dbId" name="database">
+            <option value="">All</option>
+            <option *ngFor="let database of databases" [value]="database.dbId">{{ database.displayName }}</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label for="environment">Environment</label>
+          <select id="environment" [(ngModel)]="filters.env" name="environment">
+            <option value="all">All</option>
+            <option value="dev">Dev</option>
+            <option value="prod">Prod</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label for="from">From</label>
+          <input id="from" type="date" [(ngModel)]="filters.from" name="from" />
+        </div>
+
+        <div class="filter-field">
+          <label for="to">To</label>
+          <input id="to" type="date" [(ngModel)]="filters.to" name="to" />
+        </div>
+
+        <div class="filter-actions">
+          <button type="button" (click)="applyFilters()" [disabled]="loading">Search</button>
+          <button type="button" class="secondary" (click)="resetFilters()" [disabled]="loading">Reset</button>
+        </div>
+      </section>
+
+      <p *ngIf="error" class="error">{{ error }}</p>
+      <p *ngIf="loading" class="hint">Loading logs...</p>
+
+      <section class="log-list" *ngIf="!loading && records.length > 0">
+        <article
+          class="log-card"
+          [class.log-card-expanded]="expandedRequestId === record.requestId"
+          *ngFor="let record of records; trackBy: trackByRequestId"
+        >
+          <button class="log-head" type="button" (click)="toggleExpand(record.requestId)">
+            <div class="head-left">
+              <span class="status" [class.error-status]="record.status === 'error'" [class.cancelled-status]="record.status === 'cancelled'">
+                {{ record.status }}
+              </span>
+              <strong>{{ record.endpoint }}</strong>
+            </div>
+
+            <div class="head-middle">
+              <span class="id">{{ record.requestId }}</span>
+              <button class="copy-btn" type="button" (click)="copyRequestId(record.requestId, $event)">Copy ID</button>
+            </div>
+
+            <div class="head-right">
+              <span>{{ record.appEnv | uppercase }}</span>
+              <span>{{ record.dbDisplayName || record.dbId || '-' }}</span>
+              <span>{{ record.startedAt | date: 'medium' }}</span>
+              <span class="duration" *ngIf="record.completedAt">{{ getRequestDurationMs(record) }} ms</span>
+            </div>
+          </button>
+
+          <div *ngIf="expandedRequestId === record.requestId" class="log-body">
+            <div class="question-box">
+              <span class="label">Question</span>
+              <p>{{ record.question || '-' }}</p>
+            </div>
+
+            <p *ngIf="record.status === 'error'" class="error error-banner">
+              <strong>Failure summary:</strong> {{ getErrorSummary(record) }}
+            </p>
+
+            <p *ngIf="record.status === 'cancelled'" class="cancelled-banner">
+              <strong>Cancelled:</strong> This review was intentionally stopped before execution.
+            </p>
+
+            <div class="stages">
+              <div class="stage" *ngFor="let stage of record.stages">
+                <div class="stage-title">
+                  <span class="stage-dot" [class.stage-dot-error]="stage.status === 'error'" [class.stage-dot-cancelled]="stage.status === 'cancelled'"></span>
+                  <strong>{{ formatStageName(stage.stage) }}</strong>
+                  <span class="stage-status" [class.error-status]="stage.status === 'error'" [class.cancelled-status]="stage.status === 'cancelled'">{{ stage.status }}</span>
+                  <span class="stage-time">{{ stage.timestamp | date: 'mediumTime' }}</span>
+                  <span class="duration" *ngIf="stage.durationMs">{{ stage.durationMs }} ms</span>
+                </div>
+                <p *ngIf="stage.error" class="error">
+                  {{ stage.error.message }}
+                </p>
+
+                <details *ngIf="stage.details" class="stage-details">
+                  <summary>Details</summary>
+                  <pre>{{ stage.details | json }}</pre>
+                </details>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <p *ngIf="!loading && records.length === 0" class="hint">No logs found.</p>
+
+      <footer class="pager" *ngIf="!loading && total > 0">
+        <div class="pager-summary">
+          <span>Showing {{ pageRangeStart }}-{{ pageRangeEnd }} of {{ total }} logs</span>
+        </div>
+
+        <div class="pager-actions">
+          <label class="page-size-control" for="page-size">
+            <span>Rows per page</span>
+            <select id="page-size" [ngModel]="pageSize" (ngModelChange)="onPageSizeChange($event)" name="pageSize">
+              <option *ngFor="let option of pageSizeOptions" [ngValue]="option">{{ option }}</option>
+            </select>
+          </label>
+
+          <div class="pagination-controls" *ngIf="shouldShowPagination" aria-label="Logs pagination">
+            <button
+              type="button"
+              class="pagination-button pagination-nav"
+              [disabled]="!hasPrevPage || loading"
+              (click)="previousPage()"
+            >
+              Prev
+            </button>
+
+            <button
+              *ngFor="let item of paginationItems"
+              type="button"
+              class="pagination-button pagination-page"
+              [class.active]="isActivePage(item)"
+              [class.ellipsis]="item === 'ellipsis'"
+              [disabled]="item === 'ellipsis' || loading"
+              (click)="selectPaginationItem(item)"
+            >
+              {{ item === 'ellipsis' ? '…' : item }}
+            </button>
+
+            <button
+              type="button"
+              class="pagination-button pagination-nav"
+              [disabled]="!hasNextPage || loading"
+              (click)="nextPage()"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      </footer>
+    </div>
   </section>
-
-  <p *ngIf="!loading && records.length === 0" class="hint">No logs found.</p>
-
-  <footer class="pager" *ngIf="total > pageSize">
-    <button type="button" (click)="loadLogs(page - 1)" [disabled]="!hasPrevPage || loading">Prev</button>
-    <span>Page {{ page }}</span>
-    <button type="button" (click)="loadLogs(page + 1)" [disabled]="!hasNextPage || loading">Next</button>
-  </footer>
 </div>
