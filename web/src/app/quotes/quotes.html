@@ -1,26 +1,61 @@
-<div class="workspace-shell">
-  <aside class="sidebar-shell">
+<div class="workspace-shell" [class.workspace-shell-collapsed]="sidebarCollapsed">
+  <aside class="sidebar-shell" [class.collapsed]="sidebarCollapsed">
     <div class="sidebar-scroll">
       <div class="sidebar-top">
-        <div class="sidebar-brand">
+        <button
+          type="button"
+          class="sidebar-toggle"
+          (click)="toggleSidebar($event)"
+          [attr.aria-label]="sidebarCollapsed ? 'Expand chats navigation' : 'Collapse chats navigation'"
+          [title]="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+        >
+          <span class="sidebar-toggle-icon">{{ sidebarCollapsed ? '»' : '«' }}</span>
+        </button>
+
+        <div class="sidebar-brand" [attr.title]="sidebarCollapsed ? 'QueryAssist chats' : null">
           <div class="brand-mark">Q</div>
-          <div>
+          <div *ngIf="!sidebarCollapsed">
             <div class="brand-title">QueryAssist</div>
             <div class="brand-subtitle">Saved chats workspace</div>
           </div>
         </div>
 
-        <button type="button" class="new-chat-button" (click)="startNewChat()">
+        <button
+          type="button"
+          class="new-chat-button sidebar-action-button"
+          (click)="startNewChat()"
+          [attr.aria-label]="'New chat'"
+          [title]="sidebarCollapsed ? 'New chat' : null"
+        >
           <span class="new-chat-icon">＋</span>
-          <span>New chat</span>
+          <span class="sidebar-action-label" *ngIf="!sidebarCollapsed">New chat</span>
         </button>
 
-        <button *ngIf="showLogsButton && isTechTeam" type="button" class="view-logs-button" [routerLink]="['/logs']">
+        <button
+          type="button"
+          class="archive-button sidebar-action-button"
+          [disabled]="!activeConversationId"
+          (click)="archiveActiveConversation($event)"
+          [attr.aria-label]="activeConversationId ? 'Go to archive' : 'No active chat to archive'"
+          [title]="sidebarCollapsed ? (activeConversationId ? 'Go to archive' : 'No active chat to archive') : null"
+        >
+          <span class="archive-icon sidebar-action-icon">🗃</span>
+          <span class="sidebar-action-label" *ngIf="!sidebarCollapsed">Go to archive</span>
+        </button>
+
+        <button
+          *ngIf="showLogsButton && isTechTeam"
+          type="button"
+          class="view-logs-button sidebar-action-button"
+          [routerLink]="['/logs']"
+          [attr.aria-label]="'View logs'"
+          [title]="sidebarCollapsed ? 'View logs' : null"
+        >
           <span class="logs-icon">📋</span>
-          <span>View logs</span>
+          <span class="sidebar-action-label" *ngIf="!sidebarCollapsed">View logs</span>
         </button>
 
-        <div class="sidebar-section chat-history-section">
+        <div *ngIf="!sidebarCollapsed" class="sidebar-section chat-history-section">
           <div class="section-label">Chats</div>
 
           <div *ngIf="conversationsLoading" class="sidebar-placeholder">Loading chats...</div>
@@ -84,16 +119,22 @@
     </div>
 
     <div class="sidebar-footer" (click)="$event.stopPropagation()">
-      <button type="button" class="profile-trigger" (click)="toggleProfileMenu($event)">
-        <div class="profile-avatar">{{ currentUsername.slice(0, 1).toUpperCase() }}</div>
-        <div class="profile-copy">
+      <button
+        type="button"
+        class="profile-trigger"
+        (click)="toggleProfileMenu($event)"
+        [attr.aria-label]="sidebarCollapsed ? 'Open profile menu' : null"
+        [title]="sidebarCollapsed ? currentUsername : null"
+      >
+        <div class="profile-avatar">{{ currentUserInitial }}</div>
+        <div class="profile-copy" *ngIf="!sidebarCollapsed">
           <span class="profile-name">{{ currentUsername }}</span>
           <span class="profile-role">{{ currentModeLabel }}</span>
         </div>
-        <span class="profile-more">⋯</span>
+        <span class="profile-more" *ngIf="!sidebarCollapsed">⋯</span>
       </button>
 
-      <div *ngIf="profileMenuOpen" class="profile-menu">
+      <div *ngIf="profileMenuOpen" class="profile-menu" [class.collapsed-menu]="sidebarCollapsed">
         <button type="button" class="profile-menu-button" (click)="logout()">Logout</button>
       </div>
     </div>

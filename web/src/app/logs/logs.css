@@ -252,8 +252,9 @@
 }
 
 .profile-menu.collapsed-menu {
-  left: auto;
-  right: 0;
+  left: calc(100% + 8px);
+  right: auto;
+  bottom: 0;
   min-width: 148px;
 }
 
@@ -283,7 +284,45 @@
 
 .logs-sidebar.collapsed .sidebar-nav-button {
   justify-content: center;
+  width: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  margin: 0 auto;
   padding: 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.logs-sidebar.collapsed .sidebar-nav-button:hover:not(:disabled),
+.logs-sidebar.collapsed .sidebar-nav-button:focus-visible {
+  background: transparent;
+  border-color: rgba(16, 174, 168, 0.26);
+  box-shadow: none;
+}
+
+.logs-sidebar.collapsed .profile-trigger {
+  width: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  margin: 0 auto;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.logs-sidebar.collapsed .profile-trigger:hover,
+.logs-sidebar.collapsed .profile-trigger:focus-visible {
+  background: transparent;
+  border-color: rgba(16, 174, 168, 0.26);
+}
+
+.logs-sidebar.collapsed .sidebar-nav-icon {
+  /* width: 28px;
+  font-size: 27px; */
+  /* transform: scale(1.5);
+  transform-origin: center; */
 }
 
 .logs-shell {
