@@ -7,6 +7,8 @@ import {
   ChatListResponse,
   CreateChatRequest,
   CreateChatResponse,
+  RenameChatRequest,
+  RenameChatResponse,
 } from '../Models/chat-conversation';
 
 @Injectable({
@@ -29,7 +31,15 @@ export class ChatHistoryService {
     return this.http.post<CreateChatResponse>(`${this.apiUrl}/chats`, payload);
   }
 
+  renameConversation(conversationId: string, payload: RenameChatRequest): Observable<RenameChatResponse> {
+    return this.http.patch<RenameChatResponse>(`${this.apiUrl}/chats/${conversationId}`, payload);
+  }
+
   archiveConversation(conversationId: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/chats/${conversationId}/archive`, {});
+  }
+
+  deleteConversation(conversationId: string): Observable<void> {
     return this.http.delete<void>(`${this.apiUrl}/chats/${conversationId}`);
   }
 }

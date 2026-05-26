@@ -16,6 +16,8 @@ import { ChatHistoryService } from '../Services/chat-history.service';
 import { AgentStreamNodeEvent, QueryService } from '../Services/query-service';
 import { environment } from '../../environments/environment';
 
+const locallyDeletedConversationIds = new Set<string>();
+
 @Component({
   selector: 'app-quotes',
   standalone: true,
@@ -46,6 +48,10 @@ export class QuotesComponent implements OnInit, OnDestroy {
   pendingReview: SqlReviewDraft | null = null;
   profileMenuOpen = false;
   dbMenuOpen = false;
+  conversationMenuOpenId: string | null = null;
+  renamingConversationId: string | null = null;
+  renameDraft = '';
+  pendingDeleteConversation: ChatConversationSummary | null = null;
   activeConversationId: string | null = null;
   showLogsButton = environment.enableLogsUi;
 
@@ -76,6 +82,16 @@ export class QuotesComponent implements OnInit, OnDestroy {
 
   @HostListener('document:click')
   closeProfileMenu(): void {
+    this.profileMenuOpen = false;
+    this.dbMenuOpen = false;
+    this.conversationMenuOpenId = null;
+  }
+
+  @HostListener('document:keydown.escape')
+  handleEscapeKey(): void {
+    this.closeDeleteModal();
+    this.cancelRenamingConversation();
+    this.conversationMenuOpenId = null;
     this.profileMenuOpen = false;
     this.dbMenuOpen = false;
   }
@@ -141,6 +157,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
   }
 
   async startNewChat(): Promise<void> {
+    this.closeConversationControls();
     this.pendingReview = null;
     this.messages = [];
     this.input = '';
@@ -153,6 +170,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.closeConversationControls();
     await this.router.navigate(['/chat', conversationId]);
   }
 
@@ -190,10 +208,108 @@ export class QuotesComponent implements OnInit, OnDestroy {
 
     try {
       await firstValueFrom(this.chatHistoryService.archiveConversation(this.activeConversationId));
-      await this.refreshConversations();
-      await this.startNewChat();
+      await this.handleConversationRemoved(this.activeConversationId);
     } catch {
       // Keep UI stable if archive fails.
+    }
+  }
+
+  isConversationMenuOpen(conversationId: string): boolean {
+    return this.conversationMenuOpenId === conversationId;
+  }
+
+  isRenamingConversation(conversationId: string): boolean {
+    return this.renamingConversationId === conversationId;
+  }
+
+  toggleConversationMenu(event: MouseEvent, conversationId: string): void {
+    event.stopPropagation();
+    this.profileMenuOpen = false;
+    this.dbMenuOpen = false;
+    this.conversationMenuOpenId = this.conversationMenuOpenId === conversationId ? null : conversationId;
+  }
+
+  startRenamingConversation(event: MouseEvent, conversation: ChatConversationSummary): void {
+    event.stopPropagation();
+    this.conversationMenuOpenId = null;
+    this.renamingConversationId = conversation.conversationId;
+    this.renameDraft = conversation.title;
+  }
+
+  cancelRenamingConversation(event?: Event): void {
+    event?.stopPropagation();
+    this.renamingConversationId = null;
+    this.renameDraft = '';
+  }
+
+  async submitRenameConversation(event: Event, conversationId: string): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const title = this.renameDraft.trim();
+    if (!title) {
+      return;
+    }
+
+    try {
+      await firstValueFrom(this.chatHistoryService.renameConversation(conversationId, { title }));
+      await this.refreshConversations();
+      this.cancelRenamingConversation();
+    } catch {
+      // Keep current title visible if rename fails.
+    }
+  }
+
+  async archiveConversation(event: MouseEvent, conversationId: string): Promise<void> {
+    event.stopPropagation();
+    this.conversationMenuOpenId = null;
+
+    try {
+      await firstValueFrom(this.chatHistoryService.archiveConversation(conversationId));
+      await this.handleConversationRemoved(conversationId);
+    } catch {
+      // Keep UI stable if archive fails.
+    }
+  }
+
+  requestDeleteConversation(event: MouseEvent, conversation: ChatConversationSummary): void {
+    event.stopPropagation();
+    this.conversationMenuOpenId = null;
+    this.pendingDeleteConversation = conversation;
+  }
+
+  closeDeleteModal(event?: Event): void {
+    event?.stopPropagation();
+    this.pendingDeleteConversation = null;
+  }
+
+  async confirmDeleteConversation(event?: Event): Promise<void> {
+    event?.stopPropagation();
+
+    if (!this.pendingDeleteConversation) {
+      return;
+    }
+
+    const { conversationId } = this.pendingDeleteConversation;
+    const isActiveConversation = this.activeConversationId === conversationId;
+
+    this.closeDeleteModal();
+    locallyDeletedConversationIds.add(conversationId);
+    this.removeConversationFromList(conversationId);
+
+    if (isActiveConversation) {
+      this.pendingReview = null;
+      this.messages = [];
+      this.activeConversationId = null;
+      await this.router.navigate(['/'], { replaceUrl: true });
+    }
+
+    try {
+      await firstValueFrom(this.chatHistoryService.deleteConversation(conversationId));
+      await this.refreshConversations();
+    } catch {
+      locallyDeletedConversationIds.delete(conversationId);
+      await this.refreshConversations();
     }
   }
 
@@ -409,7 +525,9 @@ export class QuotesComponent implements OnInit, OnDestroy {
 
     try {
       const response = await firstValueFrom(this.chatHistoryService.getConversations());
-      this.conversations = response.conversations;
+      this.conversations = response.conversations.filter(
+        (conversation) => !locallyDeletedConversationIds.has(conversation.conversationId),
+      );
     } finally {
       this.conversationsLoading = false;
     }
@@ -422,6 +540,27 @@ export class QuotesComponent implements OnInit, OnDestroy {
       this.activeConversationId = conversationId;
       await this.router.navigate(['/chat', conversationId], { replaceUrl: true });
     }
+  }
+
+  private closeConversationControls(): void {
+    this.conversationMenuOpenId = null;
+    this.renamingConversationId = null;
+    this.renameDraft = '';
+    this.pendingDeleteConversation = null;
+  }
+
+  private async handleConversationRemoved(conversationId: string): Promise<void> {
+    this.closeConversationControls();
+    this.removeConversationFromList(conversationId);
+    await this.refreshConversations();
+
+    if (this.activeConversationId === conversationId) {
+      await this.startNewChat();
+    }
+  }
+
+  private removeConversationFromList(conversationId: string): void {
+    this.conversations = this.conversations.filter((conversation) => conversation.conversationId !== conversationId);
   }
 
   private async submitAgentQuery(question: string): Promise<void> {

@@ -82,3 +82,11 @@ export interface CreateChatRequest {
 export interface CreateChatResponse {
   conversation: ChatConversationSummary;
 }
+
+export interface RenameChatRequest {
+  title: string;
+}
+
+export interface RenameChatResponse {
+  conversation: ChatConversationSummary;
+}

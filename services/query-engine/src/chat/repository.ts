@@ -564,3 +564,69 @@ export async function archiveConversation(userId: string, conversationId: string
 
   return rows.length > 0;
 }
+
+export async function renameConversation(
+  userId: string,
+  conversationId: string,
+  title: string,
+): Promise<ChatConversationSummary | null> {
+  const escapedUserId = escapeSqlLiteral(userId);
+  const escapedConversationId = escapeSqlLiteral(conversationId);
+  const rows = await queryRows<ConversationRow>(
+    `UPDATE ${CONVERSATIONS_TABLE}
+      SET title = ${toSqlString(title)},
+          updated_at = SYSUTCDATETIME()
+      OUTPUT
+        inserted.conversation_id AS conversationId,
+        inserted.title,
+        inserted.selected_db_id AS selectedDbId,
+        CONVERT(varchar(33), inserted.created_at, 127) + 'Z' AS createdAt,
+        CONVERT(varchar(33), inserted.updated_at, 127) + 'Z' AS updatedAt,
+        CASE WHEN inserted.last_message_at IS NULL THEN NULL ELSE CONVERT(varchar(33), inserted.last_message_at, 127) + 'Z' END AS lastMessageAt,
+        latest.preview_text AS previewText
+      FROM ${CONVERSATIONS_TABLE} c
+      OUTER APPLY (
+        SELECT TOP 1
+          COALESCE(
+            NULLIF(m.question_text, ''),
+            NULLIF(m.response_text, ''),
+            NULLIF(m.error_text, ''),
+            NULLIF(m.sql_text, '')
+          ) AS preview_text
+        FROM ${MESSAGES_TABLE} m
+        WHERE m.conversation_id = c.conversation_id
+        ORDER BY m.sequence_no DESC
+      ) latest
+      WHERE c.user_id = N'${escapedUserId}'
+        AND c.conversation_id = '${escapedConversationId}'
+        AND c.is_archived = 0;`
+  );
+
+  return rows[0] ? mapConversation(rows[0]) : null;
+}
+
+export async function deleteConversation(userId: string, conversationId: string): Promise<boolean> {
+  const escapedUserId = escapeSqlLiteral(userId);
+  const escapedConversationId = escapeSqlLiteral(conversationId);
+  const rows = await queryRows<{ deletedConversationId: string }>(
+    `DECLARE @deleted TABLE (conversationId uniqueidentifier);
+
+      DELETE FROM ${MESSAGES_TABLE}
+      WHERE conversation_id = '${escapedConversationId}'
+        AND EXISTS (
+          SELECT 1
+          FROM ${CONVERSATIONS_TABLE}
+          WHERE user_id = N'${escapedUserId}'
+            AND conversation_id = '${escapedConversationId}'
+        );
+
+      DELETE FROM ${CONVERSATIONS_TABLE}
+      OUTPUT deleted.conversation_id INTO @deleted(conversationId)
+      WHERE user_id = N'${escapedUserId}'
+        AND conversation_id = '${escapedConversationId}';
+
+      SELECT conversationId AS deletedConversationId FROM @deleted;`
+  );
+
+  return rows.length > 0;
+}
