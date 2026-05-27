@@ -243,6 +243,7 @@
   position: absolute;
   left: 0;
   right: 0;
+  z-index: 10;
   bottom: calc(100% + 8px);
   padding: 6px;
   border: 1px solid rgba(148, 163, 184, 0.18);
@@ -252,6 +253,7 @@
 }
 
 .profile-menu.collapsed-menu {
+  z-index: 100;
   left: calc(100% + 8px);
   right: auto;
   bottom: 0;

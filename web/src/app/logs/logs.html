@@ -34,14 +34,13 @@
 
           <button
             type="button"
-            class="sidebar-nav-button sidebar-nav-button-disabled"
-            disabled
-            [attr.aria-label]="'Archives coming soon'"
-            [title]="sidebarCollapsed ? 'Archives coming soon' : null"
+            class="sidebar-nav-button"
+            (click)="goToArchives()"
+            [attr.aria-label]="'Go to archives'"
+            [title]="sidebarCollapsed ? 'Go to archives' : null"
           >
             <span class="sidebar-nav-icon">🗃</span>
             <span class="sidebar-nav-label" *ngIf="!sidebarCollapsed">Go to archives</span>
-            <span class="sidebar-nav-meta" *ngIf="!sidebarCollapsed">Soon</span>
           </button>
         </nav>
       </div>

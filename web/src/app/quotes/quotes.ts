@@ -3,7 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, ElementRef, HostListener, NgZone, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
-import { Subscription, firstValueFrom } from 'rxjs';
+import { Subscription, combineLatest, firstValueFrom } from 'rxjs';
 import { take } from 'rxjs/operators';
 import { QueryMessageComponent } from '../Components/query-message-component/query-message-component';
 import { SqlReviewDraft, SqlReviewPanelComponent } from '../Components/sql-review-panel/sql-review-panel';
@@ -56,6 +56,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
   activeConversationId: string | null = null;
   showLogsButton = environment.enableLogsUi;
   sidebarCollapsed = this.readSidebarCollapsed();
+  isArchivedView = false;
 
   private routeSubscription?: Subscription;
 
@@ -72,9 +73,19 @@ export class QuotesComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     void this.loadDatabases();
-    void this.refreshConversations();
-    this.routeSubscription = this.route.paramMap.subscribe((params) => {
-      void this.handleRouteChange(params);
+    this.routeSubscription = combineLatest([this.route.paramMap, this.route.data]).subscribe(([params, data]) => {
+      const archivedView = data['archivedView'] === true;
+      const archivedViewChanged = this.isArchivedView !== archivedView;
+
+      this.isArchivedView = archivedView;
+
+      if (archivedViewChanged) {
+        this.closeConversationControls();
+        this.profileMenuOpen = false;
+        this.dbMenuOpen = false;
+      }
+
+      void this.handleRouteChange(params, archivedViewChanged);
     });
   }
 
@@ -116,10 +127,13 @@ export class QuotesComponent implements OnInit, OnDestroy {
 
   get currentConversationTitle(): string {
     if (!this.activeConversationId) {
-      return 'New chat';
+      return this.isArchivedView ? 'Archived chats' : 'New chat';
     }
 
-    return this.conversations.find((item) => item.conversationId === this.activeConversationId)?.title || 'Saved chat';
+    return (
+      this.conversations.find((item) => item.conversationId === this.activeConversationId)?.title ||
+      (this.isArchivedView ? 'Archived chat' : 'Saved chat')
+    );
   }
 
   get currentDatabaseLabel(): string {
@@ -135,7 +149,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
   }
 
   get canSubmit(): boolean {
-    return !this.loading && !this.reviewLoading && !this.pendingReview && !!this.selectedDbId && !this.historyLoading;
+    return !this.isArchivedView && !this.loading && !this.reviewLoading && !this.pendingReview && !!this.selectedDbId && !this.historyLoading;
   }
 
   get hasSavedConversations(): boolean {
@@ -143,7 +157,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
   }
 
   get canChangeDatabase(): boolean {
-    return !this.loading && !this.reviewLoading && !this.pendingReview && !this.historyLoading;
+    return !this.isArchivedView && !this.loading && !this.reviewLoading && !this.pendingReview && !this.historyLoading;
   }
 
   getSelectedDbName(): string {
@@ -163,6 +177,11 @@ export class QuotesComponent implements OnInit, OnDestroy {
   }
 
   async startNewChat(): Promise<void> {
+    if (this.isArchivedView) {
+      await this.router.navigate(['/']);
+      return;
+    }
+
     this.closeConversationControls();
     this.pendingReview = null;
     this.messages = [];
@@ -177,7 +196,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
     }
 
     this.closeConversationControls();
-    await this.router.navigate(['/chat', conversationId]);
+    await this.router.navigate(this.isArchivedView ? ['/archives', conversationId] : ['/chat', conversationId]);
   }
 
   toggleDbMenu(event: MouseEvent): void {
@@ -215,19 +234,10 @@ export class QuotesComponent implements OnInit, OnDestroy {
     this.cancelRenamingConversation();
   }
 
-  async archiveActiveConversation(event: MouseEvent): Promise<void> {
+  async goToArchiveSection(event: MouseEvent): Promise<void> {
     event.stopPropagation();
 
-    if (!this.activeConversationId) {
-      return;
-    }
-
-    try {
-      await firstValueFrom(this.chatHistoryService.archiveConversation(this.activeConversationId));
-      await this.handleConversationRemoved(this.activeConversationId);
-    } catch {
-      // Keep UI stable if archive fails.
-    }
+    await this.router.navigate(this.isArchivedView ? ['/'] : ['/archives']);
   }
 
   isConversationMenuOpen(conversationId: string): boolean {
@@ -246,6 +256,10 @@ export class QuotesComponent implements OnInit, OnDestroy {
   }
 
   startRenamingConversation(event: MouseEvent, conversation: ChatConversationSummary): void {
+    if (this.isArchivedView) {
+      return;
+    }
+
     event.stopPropagation();
     this.conversationMenuOpenId = null;
     this.renamingConversationId = conversation.conversationId;
@@ -262,6 +276,10 @@ export class QuotesComponent implements OnInit, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
 
+    if (this.isArchivedView) {
+      return;
+    }
+
     const title = this.renameDraft.trim();
     if (!title) {
       return;
@@ -277,6 +295,10 @@ export class QuotesComponent implements OnInit, OnDestroy {
   }
 
   async archiveConversation(event: MouseEvent, conversationId: string): Promise<void> {
+    if (this.isArchivedView) {
+      return;
+    }
+
     event.stopPropagation();
     this.conversationMenuOpenId = null;
 
@@ -285,6 +307,18 @@ export class QuotesComponent implements OnInit, OnDestroy {
       await this.handleConversationRemoved(conversationId);
     } catch {
       // Keep UI stable if archive fails.
+    }
+  }
+
+  async moveConversationToChats(event: MouseEvent, conversationId: string): Promise<void> {
+    event.stopPropagation();
+    this.conversationMenuOpenId = null;
+
+    try {
+      await firstValueFrom(this.chatHistoryService.unarchiveConversation(conversationId));
+      await this.handleConversationRemoved(conversationId);
+    } catch {
+      // Keep UI stable if restore fails.
     }
   }
 
@@ -317,7 +351,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
       this.pendingReview = null;
       this.messages = [];
       this.activeConversationId = null;
-      await this.router.navigate(['/'], { replaceUrl: true });
+      await this.router.navigate(this.getCurrentListRoute(), { replaceUrl: true });
     }
 
     try {
@@ -480,12 +514,16 @@ export class QuotesComponent implements OnInit, OnDestroy {
     return this.activeConversationId === conversationId;
   }
 
-  private async handleRouteChange(params: ParamMap): Promise<void> {
+  private async handleRouteChange(params: ParamMap, forceRefresh = false): Promise<void> {
     const conversationId = params.get('conversationId');
+
+    if (forceRefresh || this.conversations.length === 0) {
+      await this.refreshConversations();
+    }
 
     // If we already have this conversation's messages in memory (e.g. after a mutation
     // that navigated here), skip reloading to preserve runtime-only state like agentSteps.
-    if (conversationId && conversationId === this.activeConversationId && this.messages.length > 0) {
+    if (conversationId && conversationId === this.activeConversationId && this.messages.length > 0 && !forceRefresh) {
       return;
     }
 
@@ -502,7 +540,9 @@ export class QuotesComponent implements OnInit, OnDestroy {
     this.historyLoading = true;
 
     try {
-      const response = await firstValueFrom(this.chatHistoryService.getConversation(conversationId));
+      const response = await firstValueFrom(
+        this.chatHistoryService.getConversation(conversationId, { archived: this.isArchivedView }),
+      );
       const conversation = response.conversation;
       this.activeConversationId = conversation.conversationId;
       if (conversation.selectedDbId) {
@@ -514,7 +554,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
       if (error instanceof HttpErrorResponse && error.status === 404) {
         this.activeConversationId = null;
         this.messages = [];
-        await this.router.navigate(['/'], { replaceUrl: true });
+        await this.router.navigate(this.getCurrentListRoute(), { replaceUrl: true });
       }
     } finally {
       this.historyLoading = false;
@@ -540,7 +580,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
     this.conversationsLoading = true;
 
     try {
-      const response = await firstValueFrom(this.chatHistoryService.getConversations());
+      const response = await firstValueFrom(this.chatHistoryService.getConversations({ archived: this.isArchivedView }));
       this.conversations = response.conversations.filter(
         (conversation) => !locallyDeletedConversationIds.has(conversation.conversationId),
       );
@@ -571,8 +611,16 @@ export class QuotesComponent implements OnInit, OnDestroy {
     await this.refreshConversations();
 
     if (this.activeConversationId === conversationId) {
-      await this.startNewChat();
+      this.pendingReview = null;
+      this.messages = [];
+      this.input = '';
+      this.activeConversationId = null;
+      await this.router.navigate(this.getCurrentListRoute(), { replaceUrl: true });
     }
+  }
+
+  private getCurrentListRoute(): string[] {
+    return this.isArchivedView ? ['/archives'] : ['/'];
   }
 
   private removeConversationFromList(conversationId: string): void {

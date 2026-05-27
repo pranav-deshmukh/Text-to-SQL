@@ -169,7 +169,7 @@ export async function registerChatStore(): Promise<void> {
   console.log(`💬 Chat store ready with ${row?.conversationCount ?? 0} conversation(s) and ${row?.messageCount ?? 0} message(s).`);
 }
 
-export async function listConversations(userId: string): Promise<ChatConversationSummary[]> {
+export async function listConversations(userId: string, archived = false): Promise<ChatConversationSummary[]> {
   const escapedUserId = escapeSqlLiteral(userId);
   const rows = await queryRows<ConversationRow>(
     `SELECT
@@ -194,14 +194,14 @@ export async function listConversations(userId: string): Promise<ChatConversatio
         ORDER BY m.sequence_no DESC
       ) latest
       WHERE c.user_id = N'${escapedUserId}'
-        AND c.is_archived = 0
+        AND c.is_archived = ${archived ? 1 : 0}
       ORDER BY COALESCE(c.last_message_at, c.updated_at) DESC, c.created_at DESC;`
   );
 
   return rows.map(mapConversation);
 }
 
-export async function getConversation(userId: string, conversationId: string): Promise<ChatConversationDetail | null> {
+export async function getConversation(userId: string, conversationId: string, archived = false): Promise<ChatConversationDetail | null> {
   const escapedUserId = escapeSqlLiteral(userId);
   const escapedConversationId = escapeSqlLiteral(conversationId);
   const conversations = await queryRows<ConversationRow>(
@@ -228,7 +228,7 @@ export async function getConversation(userId: string, conversationId: string): P
       ) latest
       WHERE c.user_id = N'${escapedUserId}'
         AND c.conversation_id = '${escapedConversationId}'
-        AND c.is_archived = 0;`
+        AND c.is_archived = ${archived ? 1 : 0};`
   );
 
   const conversation = conversations[0];
@@ -560,6 +560,22 @@ export async function archiveConversation(userId: string, conversationId: string
       WHERE user_id = N'${escapedUserId}'
         AND conversation_id = '${escapedConversationId}'
         AND is_archived = 0;`
+  );
+
+  return rows.length > 0;
+}
+
+export async function unarchiveConversation(userId: string, conversationId: string): Promise<boolean> {
+  const escapedUserId = escapeSqlLiteral(userId);
+  const escapedConversationId = escapeSqlLiteral(conversationId);
+  const rows = await queryRows<{ restoredConversationId: string }>(
+    `UPDATE ${CONVERSATIONS_TABLE}
+      SET is_archived = 0,
+          updated_at = SYSUTCDATETIME()
+      OUTPUT inserted.conversation_id AS restoredConversationId
+      WHERE user_id = N'${escapedUserId}'
+        AND conversation_id = '${escapedConversationId}'
+        AND is_archived = 1;`
   );
 
   return rows.length > 0;

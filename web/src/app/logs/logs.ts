@@ -193,6 +193,11 @@ export class LogsComponent implements OnInit {
     await this.router.navigate(['/']);
   }
 
+  async goToArchives(): Promise<void> {
+    this.profileMenuOpen = false;
+    await this.router.navigate(['/archives']);
+  }
+
   logout(): void {
     this.authService.logout();
     this.profileMenuOpen = false;

@@ -26,6 +26,7 @@ import {
   persistReviewDraft,
   persistUserQuestion,
   renameUserConversation,
+  unarchiveUserConversation,
   updatePersistedReviewMessage,
 } from "./chat/service";
 import { registerChatStore } from "./chat/repository";
@@ -57,6 +58,10 @@ const AGENT_NODE_TO_STAGE: Record<string, string> = {
   validate: "sql_safety_validation",
   execute: "sql_execution",
 };
+
+function readArchivedFlag(value: unknown): boolean {
+  return typeof value === "string" && value.toLowerCase() === "true";
+}
 
 function createAgentAuditHooks(requestId: string): AgentExecutionHooks {
   return {
@@ -223,7 +228,7 @@ async function bootstrap() {
       return res.status(401).json(buildRequestError("Authentication required."));
     }
 
-    const conversations = await listUserConversations(req.user.userId);
+    const conversations = await listUserConversations(req.user.userId, readArchivedFlag(req.query.archived));
     return res.json({ conversations });
   });
 
@@ -246,7 +251,11 @@ async function bootstrap() {
       return res.status(401).json(buildRequestError("Authentication required."));
     }
 
-    const conversation = await getUserConversation(req.user.userId, String(req.params.conversationId));
+    const conversation = await getUserConversation(
+      req.user.userId,
+      String(req.params.conversationId),
+      readArchivedFlag(req.query.archived),
+    );
     if (!conversation) {
       return res.status(404).json({
         ...buildRequestError("Conversation not found."),
@@ -294,6 +303,23 @@ async function bootstrap() {
 
     const archived = await archiveUserConversation(req.user.userId, String(req.params.conversationId));
     if (!archived) {
+      return res.status(404).json({
+        ...buildRequestError("Conversation not found."),
+        error: "Conversation not found.",
+        code: "CHAT_NOT_FOUND",
+      });
+    }
+
+    return res.status(204).send();
+  });
+
+  app.post("/chats/:conversationId/unarchive", requireAuth, async (req: AuthenticatedRequest, res) => {
+    if (!req.user) {
+      return res.status(401).json(buildRequestError("Authentication required."));
+    }
+
+    const restored = await unarchiveUserConversation(req.user.userId, String(req.params.conversationId));
+    if (!restored) {
       return res.status(404).json({
         ...buildRequestError("Conversation not found."),
         error: "Conversation not found.",
