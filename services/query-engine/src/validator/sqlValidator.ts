@@ -185,10 +185,20 @@ function checkSchema(sql: string, dbId: string): ValidationResult {
     // Skip CTE aliases — they are not real tables, just named subqueries.
     if (cteNames.has(table)) continue;
 
-    // Allow INFORMATION_SCHEMA views — they are read-only system views, not user tables,
-    // so they don't appear in ALLOWED_TABLES (which only contains BASE TABLEs).
-    // Queries like "what tables do we have" legitimately need INFORMATION_SCHEMA.TABLES.
+    // Allow INFORMATION_SCHEMA views and sys catalog views — they are read-only system
+    // views, not user tables, so they don't appear in ALLOWED_TABLES (which only contains
+    // BASE TABLEs). Queries like "what tables do we have" or "which table has the most rows"
+    // legitimately need these system views.
     if (table.startsWith("information_schema.")) continue;
+
+    // Allow a safe subset of sys.* catalog views for metadata queries (row counts, schema
+    // inspection, etc.). We don't blanket-allow all sys.* to prevent access to sensitive
+    // DMVs like sys.sql_logins or sys.credentials.
+    const ALLOWED_SYS_VIEWS = new Set([
+      "sys.tables", "sys.schemas", "sys.partitions", "sys.columns",
+      "sys.indexes", "sys.objects", "sys.types", "sys.views",
+    ]);
+    if (ALLOWED_SYS_VIEWS.has(table)) continue;
 
     if (!allowedTables.has(table)) {
       return {

@@ -412,6 +412,44 @@ export class QuotesComponent implements OnInit, OnDestroy {
     }
   }
 
+  async regenerateReviewSql(): Promise<void> {
+    if (!this.pendingReview || this.reviewLoading) {
+      return;
+    }
+
+    const reviewDraft = this.pendingReview;
+    this.reviewLoading = true;
+
+    try {
+      const response = await firstValueFrom(
+        this.queryService.regenerateQuestion(reviewDraft.threadId, this.activeConversationId || undefined),
+      );
+
+      if (response.status === 'awaiting_review') {
+        this.pendingReview = this.toReviewDraft(response, reviewDraft.sourceMessageId);
+        if (reviewDraft.sourceMessageId) {
+          this.updateAgentMessage(reviewDraft.sourceMessageId, (message) => ({
+            ...message,
+            sql: response.editableSQL || response.generatedSQL || message.sql,
+            generatedSQL: response.generatedSQL,
+            editableSQL: response.editableSQL,
+            threadId: response.threadId,
+            status: 'awaiting_review',
+            schemaContext: response.schemaContext,
+            promptPreview: response.promptPreview,
+            retrievedTables: response.retrievedTables,
+            lastError: response.lastError || null,
+          }));
+        }
+      }
+    } catch (error) {
+      this.messages = [...this.messages, this.createErrorMessage(error)];
+    } finally {
+      this.reviewLoading = false;
+      this.scrollToBottomSoon();
+    }
+  }
+
   async cancelReview(): Promise<void> {
     if (!this.pendingReview || this.reviewLoading) {
       return;

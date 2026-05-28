@@ -220,7 +220,7 @@
 
         <section *ngIf="pendingReview && !historyLoading" class="review-section">
           <app-sql-review-panel [draft]="pendingReview" [loading]="reviewLoading" (runSql)="runReviewedSql($event)"
-            (cancel)="cancelReview()"></app-sql-review-panel>
+            (regenerate)="regenerateReviewSql()" (cancel)="cancelReview()"></app-sql-review-panel>
         </section>
 
         <div *ngIf="historyLoading" class="history-loading">

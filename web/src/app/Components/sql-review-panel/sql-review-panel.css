@@ -118,12 +118,14 @@ textarea {
 
 .primary-button,
 .ghost-button,
+.secondary-button,
 .toggle-link {
   font: inherit;
 }
 
 .primary-button,
-.ghost-button {
+.ghost-button,
+.secondary-button {
   border-radius: 10px;
   padding: 10px 14px;
   cursor: pointer;
@@ -133,6 +135,23 @@ textarea {
   border: none;
   background: linear-gradient(135deg, var(--teal-primary), var(--teal-bright));
   color: #ffffff;
+}
+
+.secondary-button {
+  border: 1px solid var(--border-bright);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  transition: background 0.15s;
+}
+
+.secondary-button:hover:not(:disabled) {
+  background: var(--bg-base);
+}
+
+.secondary-button:disabled,
+.primary-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .ghost-button {

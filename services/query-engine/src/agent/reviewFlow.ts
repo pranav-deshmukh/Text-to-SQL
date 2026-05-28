@@ -289,6 +289,60 @@ export async function resumeReviewFlow(threadId: string, userId: string, approve
   }
 }
 
+/**
+ * Regenerate SQL for an existing review session.
+ * Re-runs RAG retrieval + LLM generation with the previous error as context,
+ * so the LLM can self-correct. Similar to how the end-user graph retries work.
+ */
+export async function regenerateReviewFlow(threadId: string, userId: string): Promise<ReviewDraftResponse> {
+  const session = getReviewSession(threadId, userId);
+  if (!session) {
+    throw new Error("Review session not found or has expired.");
+  }
+
+  const database = getDatabaseConfig(session.dbId);
+  if (!database) {
+    throw new Error(`Unknown database: ${session.dbId}`);
+  }
+
+  let errorContext = "";
+  if (session.lastError) {
+    errorContext = `\n\nPREVIOUS ERROR (do NOT repeat this mistake):\n` +
+      `Phase: ${session.lastError.phase}\n` +
+      `Failed SQL: ${session.editableSql}\n` +
+      `Error: ${session.lastError.message}`;
+  }
+
+  const enrichedQuery = session.lastError
+    ? `${session.question} (context: previous SQL failed with ${session.lastError.phase} error: ${session.lastError.message})`
+    : session.question;
+
+  const ragContext = await retrieveContextDetailed(enrichedQuery, database.qdrantCollection);
+  const prompt = assemblePromptFromRAG(ragContext.schemaContext + errorContext, session.question);
+  const generatedSQL = (await callLLM(prompt.systemPrompt, prompt.userPrompt)).trim();
+
+  if (!generatedSQL || generatedSQL.toUpperCase() === "ERROR") {
+    const error = buildGenerationError("The language model did not return a usable SQL query on regeneration.");
+    throw new Error(error.detail || error.error);
+  }
+
+  const updated = updateReviewSession(threadId, (current) => ({
+    ...current,
+    generatedSql: generatedSQL,
+    editableSql: generatedSQL,
+    schemaContext: ragContext.schemaContext,
+    promptPreview: prompt,
+    retrievedTables: ragContext.tables.map((t) => t.tableName),
+    lastError: undefined,
+  }));
+
+  if (!updated) {
+    throw new Error("Review session expired before regeneration could complete.");
+  }
+
+  return buildDraftResponse(updated);
+}
+
 export function getReviewStatus(threadId: string, userId: string) {
   const session = getReviewSession(threadId, userId);
   if (!session) {
