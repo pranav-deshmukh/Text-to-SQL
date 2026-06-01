@@ -8,6 +8,7 @@ import {
   getConversation,
   listConversations,
   renameConversation,
+  unarchiveConversation,
   updateConversationMetadata,
   updateMessage,
 } from "./repository";
@@ -37,12 +38,16 @@ function normalizeConversationTitle(title: string): string {
   return normalized;
 }
 
-export async function listUserConversations(userId: string): Promise<ChatConversationSummary[]> {
-  return listConversations(userId);
+export async function listUserConversations(userId: string, archived = false): Promise<ChatConversationSummary[]> {
+  return listConversations(userId, archived);
 }
 
-export async function getUserConversation(userId: string, conversationId: string): Promise<ChatConversationDetail | null> {
-  return getConversation(userId, conversationId);
+export async function getUserConversation(
+  userId: string,
+  conversationId: string,
+  archived = false,
+): Promise<ChatConversationDetail | null> {
+  return getConversation(userId, conversationId, archived);
 }
 
 export async function createUserConversation(userId: string, selectedDbId?: string | null, title?: string): Promise<ChatConversationSummary> {
@@ -55,6 +60,10 @@ export async function createUserConversation(userId: string, selectedDbId?: stri
 
 export async function archiveUserConversation(userId: string, conversationId: string): Promise<boolean> {
   return archiveConversation(userId, conversationId);
+}
+
+export async function unarchiveUserConversation(userId: string, conversationId: string): Promise<boolean> {
+  return unarchiveConversation(userId, conversationId);
 }
 
 export async function renameUserConversation(

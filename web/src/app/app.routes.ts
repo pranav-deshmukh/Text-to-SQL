@@ -19,11 +19,25 @@ export const routes: Routes = [
     path: '',
     component: QuotesComponent,
     canActivate: [authGuard],
+    data: { archivedView: false },
   },
   {
     path: 'chat/:conversationId',
     component: QuotesComponent,
     canActivate: [authGuard],
+    data: { archivedView: false },
+  },
+  {
+    path: 'archives',
+    component: QuotesComponent,
+    canActivate: [authGuard],
+    data: { archivedView: true },
+  },
+  {
+    path: 'archives/:conversationId',
+    component: QuotesComponent,
+    canActivate: [authGuard],
+    data: { archivedView: true },
   },
   {
     path: 'logs',

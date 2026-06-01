@@ -6,17 +6,17 @@
           type="button"
           class="sidebar-toggle"
           (click)="toggleSidebar($event)"
-          [attr.aria-label]="sidebarCollapsed ? 'Expand chats navigation' : 'Collapse chats navigation'"
+          [attr.aria-label]="sidebarCollapsed ? (isArchivedView ? 'Expand archived chats navigation' : 'Expand chats navigation') : (isArchivedView ? 'Collapse archived chats navigation' : 'Collapse chats navigation')"
           [title]="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
         >
           <span class="sidebar-toggle-icon">{{ sidebarCollapsed ? '»' : '«' }}</span>
         </button>
 
-        <div class="sidebar-brand" [attr.title]="sidebarCollapsed ? 'QueryAssist chats' : null">
+        <div class="sidebar-brand" [attr.title]="sidebarCollapsed ? (isArchivedView ? 'QueryAssist archived chats' : 'QueryAssist chats') : null">
           <div class="brand-mark">Q</div>
           <div *ngIf="!sidebarCollapsed">
             <div class="brand-title">QueryAssist</div>
-            <div class="brand-subtitle">Saved chats workspace</div>
+            <div class="brand-subtitle">{{ isArchivedView ? 'Archived chats workspace' : 'Saved chats workspace' }}</div>
           </div>
         </div>
 
@@ -34,13 +34,12 @@
         <button
           type="button"
           class="archive-button sidebar-action-button"
-          [disabled]="!activeConversationId"
-          (click)="archiveActiveConversation($event)"
-          [attr.aria-label]="activeConversationId ? 'Go to archive' : 'No active chat to archive'"
-          [title]="sidebarCollapsed ? (activeConversationId ? 'Go to archive' : 'No active chat to archive') : null"
+          (click)="goToArchiveSection($event)"
+          [attr.aria-label]="isArchivedView ? 'Go to chats' : 'Go to archives'"
+          [title]="sidebarCollapsed ? (isArchivedView ? 'Go to chats' : 'Go to archives') : null"
         >
           <span class="archive-icon sidebar-action-icon">🗃</span>
-          <span class="sidebar-action-label" *ngIf="!sidebarCollapsed">Go to archive</span>
+          <span class="sidebar-action-label" *ngIf="!sidebarCollapsed">{{ isArchivedView ? 'Go to chats' : 'Go to archives' }}</span>
         </button>
 
         <button
@@ -56,12 +55,14 @@
         </button>
 
         <div *ngIf="!sidebarCollapsed" class="sidebar-section chat-history-section">
-          <div class="section-label">Chats</div>
+          <div class="section-label">{{ isArchivedView ? 'Archived chats' : 'Chats' }}</div>
 
-          <div *ngIf="conversationsLoading" class="sidebar-placeholder">Loading chats...</div>
+          <div *ngIf="conversationsLoading" class="sidebar-placeholder">
+            {{ isArchivedView ? 'Loading archived chats...' : 'Loading chats...' }}
+          </div>
 
           <div *ngIf="!conversationsLoading && !hasSavedConversations" class="sidebar-placeholder">
-            Your saved chats will appear here.
+            {{ isArchivedView ? 'Your archived chats will appear here.' : 'Your saved chats will appear here.' }}
           </div>
 
           <div *ngFor="let conversation of conversations; trackBy: trackByConversationId" class="conversation-row">
@@ -82,13 +83,17 @@
                   </button>
 
                   <div *ngIf="isConversationMenuOpen(conversation.conversationId)" class="conversation-menu">
-                    <button type="button" class="conversation-menu-button"
+                    <button *ngIf="!isArchivedView" type="button" class="conversation-menu-button"
                       (click)="startRenamingConversation($event, conversation)">
                       Rename
                     </button>
-                    <button type="button" class="conversation-menu-button"
+                    <button *ngIf="!isArchivedView" type="button" class="conversation-menu-button"
                       (click)="archiveConversation($event, conversation.conversationId)">
                       Archive
+                    </button>
+                    <button *ngIf="isArchivedView" type="button" class="conversation-menu-button"
+                      (click)="moveConversationToChats($event, conversation.conversationId)">
+                      Move to chats
                     </button>
                     <button type="button" class="conversation-menu-button conversation-menu-button-danger"
                       (click)="requestDeleteConversation($event, conversation)">
@@ -100,7 +105,7 @@
             </ng-container>
 
             <ng-template #renameConversationTemplate>
-              <form class="conversation-rename-form"
+              <form *ngIf="!isArchivedView" class="conversation-rename-form"
                 (click)="$event.stopPropagation()"
                 (ngSubmit)="submitRenameConversation($event, conversation.conversationId)">
                 <input type="text" [name]="'rename-' + conversation.conversationId" [(ngModel)]="renameDraft"
@@ -142,7 +147,10 @@
 
   <section class="chat-shell">
     <div class="top-navbar">
-      <h1 class="top-navbar-title">{{ currentConversationTitle }}</h1>
+      <div class="top-navbar-main">
+        <h1 class="top-navbar-title">{{ currentConversationTitle }}</h1>
+        <span *ngIf="isArchivedView && activeConversationId" class="archived-badge">Archived</span>
+      </div>
       <div class="top-navbar-db" (click)="$event.stopPropagation()">
         <div class="db-dropdown-shell">
           <button type="button" class="db-dropdown-trigger" [disabled]="databasesLoading || !canChangeDatabase"
@@ -181,13 +189,13 @@
 
         <section *ngIf="!historyLoading && messages.length === 0" class="empty-state">
           <div class="hero-icon">⚡</div>
-          <h2>Ask anything about your data</h2>
+          <h2>{{ isArchivedView ? 'Archived chats are read only' : 'Ask anything about your data' }}</h2>
           <p>
-            {{ isTechTeam ? 'Review generated SQL, inspect context, and execute safely.' : 'Natural language → validated
-            results, with saved chats you can revisit anytime.' }}
+            {{ isArchivedView ? 'Open an archived conversation from the sidebar to review it.' : (isTechTeam ? 'Review generated SQL, inspect context, and execute safely.' : 'Natural language → validated
+            results, with saved chats you can revisit anytime.') }}
           </p>
 
-          <div class="suggestion-list" *ngIf="selectedDbId">
+          <div class="suggestion-list" *ngIf="!isArchivedView && selectedDbId">
             <button *ngFor="let suggestion of suggestions" type="button" class="suggestion-chip"
               (click)="applySuggestion(suggestion)">
               {{ suggestion }}
@@ -236,7 +244,7 @@
       </div>
     </div>
 
-    <footer class="composer-shell">
+    <footer *ngIf="!isArchivedView" class="composer-shell">
       <form class="composer" (ngSubmit)="submitQuery()">
         <div class="input-shell" [class.input-shell-disabled]="!canSubmit">
           <span class="input-icon">⌕</span>
