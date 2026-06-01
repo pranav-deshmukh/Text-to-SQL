@@ -191,6 +191,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
   }
 
   selectDatabase(dbId: string): void {
+    localStorage.setItem('selectedDbId', dbId);
     if (!this.canChangeDatabase || this.selectedDbId === dbId) {
       this.dbMenuOpen = false;
       return;
@@ -567,7 +568,12 @@ export class QuotesComponent implements OnInit, OnDestroy {
       const response = await firstValueFrom(this.queryService.getDatabases());
       this.databases = response.databases;
       if (!this.selectedDbId && this.databases.length > 0) {
-        this.selectedDbId = this.databases[0].dbId;
+        const saved = localStorage.getItem('selectedDbId');
+        if (saved && this.databases.some(db => db.dbId === saved)) {
+          this.selectedDbId = saved;
+        } else {
+          this.selectedDbId = this.databases[0].dbId;
+        }
       }
     } finally {
       this.databasesLoading = false;

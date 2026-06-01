@@ -187,3 +187,36 @@ export async function getDocumentCount(collectionName: string): Promise<number> 
   const info = await qdrant.getCollection(collectionName);
   return info.points_count ?? 0;
 }
+
+/**
+ * Retrieve ALL documents from a collection using scroll.
+ * Used when we want to provide full schema context to the LLM.
+ */
+export async function getAllDocuments(collectionName: string): Promise<SearchResult[]> {
+  const { qdrant } = await ensureClients();
+  const allResults: SearchResult[] = [];
+  let offset: string | number | undefined = undefined;
+
+  while (true) {
+    const response = await qdrant.scroll(collectionName, {
+      limit: 100,
+      with_payload: true,
+      offset,
+    });
+
+    for (const point of response.points) {
+      const payload = point.payload as Record<string, unknown> | null | undefined;
+      allResults.push({
+        id: (payload?.docId as string) ?? String(point.id),
+        text: (payload?.text as string) ?? "",
+        metadata: toSearchMetadata(payload),
+        score: 1.0,
+      });
+    }
+
+    if (!response.next_page_offset) break;
+    offset = response.next_page_offset;
+  }
+
+  return allResults;
+}
