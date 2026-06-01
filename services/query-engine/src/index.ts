@@ -8,7 +8,7 @@ import { initVectorStore } from "./rag/vectorStore";
 import { retrieveContextDetailed } from "./rag/retriever";
 import { registerValidator } from "./validator/sqlValidator";
 import { AgentExecutionHooks, runAgentWithHooks, streamAgent } from "./agent";
-import { initiateReviewFlow, resumeReviewFlow, getReviewStatus, streamReviewFlow } from "./agent/reviewFlow";
+import { initiateReviewFlow, resumeReviewFlow, regenerateReviewFlow, getReviewStatus, streamReviewFlow } from "./agent/reviewFlow";
 import { cancelReviewSession } from "./agent/reviewSessions";
 import { getReviewSession, updateReviewSession } from "./agent/reviewSessions";
 import { requireAuth, requireRole, type AuthenticatedRequest } from "./auth/middleware";
@@ -743,6 +743,27 @@ async function bootstrap() {
         error: err?.message || "Review session not found.",
         code: "REVIEW_SESSION_NOT_FOUND",
       });
+    }
+  });
+
+  app.post("/query/regenerate", requireAuth, requireRole("tech_team"), async (req: AuthenticatedRequest, res) => {
+    const { threadId, conversationId } = req.body ?? {};
+    const user = req.user;
+
+    if (!user) {
+      return res.status(401).json({ error: "Authentication required." });
+    }
+
+    if (!threadId || typeof threadId !== "string") {
+      return res.status(400).json({ error: "Missing 'threadId' in request body." });
+    }
+
+    try {
+      const result = await regenerateReviewFlow(threadId, user.userId);
+      return res.json({ ...result, conversationId });
+    } catch (error: any) {
+      const message = error instanceof Error ? error.message : String(error);
+      return res.status(400).json({ error: message });
     }
   });
 

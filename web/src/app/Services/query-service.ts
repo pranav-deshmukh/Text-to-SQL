@@ -64,6 +64,10 @@ export class QueryService {
     return this.http.post<QueryResponse>(`${this.apiUrl}/query/resume`, { threadId, approvedSQL, conversationId });
   }
 
+  regenerateQuestion(threadId: string, conversationId?: string): Observable<QueryResponse> {
+    return this.http.post<QueryResponse>(`${this.apiUrl}/query/regenerate`, { threadId, conversationId });
+  }
+
   cancelReview(threadId: string, reason?: string): Observable<QueryResponse> {
     return this.http.post<QueryResponse>(`${this.apiUrl}/query/review/cancel`, { threadId, reason });
   }

@@ -2,15 +2,43 @@
 
 ## Goal
 
-The RAG layer gives the LLM only the database context it needs for the current question instead of dumping the full schema into every prompt.
+The RAG layer gives the LLM the database context it needs for the current question. The system supports multiple databases, each with its own Qdrant collection, and can operate in two retrieval modes: similarity search or full-schema fetch.
 
-The updated implementation seeds Qdrant directly from SQL Server metadata. It no longer depends on handwritten business descriptions in local markdown files.
+The implementation seeds Qdrant directly from SQL Server metadata. It does not depend on handwritten business descriptions in local markdown files.
+
+---
+
+## Multi-Database Architecture
+
+QueryAssist supports multiple databases simultaneously via a **database registry**. Each registered database gets:
+
+- its own SQL Server connection
+- its own Qdrant collection (named `sql_context_<dbId>`)
+- its own validator whitelist
+
+### Database Registration
+
+Databases are registered via the `DB_REGISTRY` environment variable — a JSON array:
+
+```json
+[
+  { "dbId": "bykestores", "displayName": "Byke Stores", "connectionString": "..." },
+  { "dbId": "lpl_poc", "displayName": "LPL POC", "connectionString": "..." },
+  { "dbId": "AdventureWorks2019", "displayName": "Enterprise AI Test DB", "connectionString": "..." }
+]
+```
+
+At startup, the query engine initializes all registered databases: connects to SQL Server, loads the validator whitelist from `INFORMATION_SCHEMA`, and verifies the Qdrant collection is ready.
+
+### Database Selection
+
+The frontend stores the user's selected database in `localStorage` so it persists across page reloads and navigation. Every query request includes the `dbId` to ensure the correct schema context and SQL connection are used.
 
 ---
 
 ## Source of Truth
 
-The seed pipeline reads metadata directly from SQL Server using `DB_CONNECTION_STRING`.
+The seed pipeline reads metadata directly from each database's SQL Server connection string.
 
 It extracts:
 
@@ -22,19 +50,16 @@ It extracts:
 - stored procedures and views from `sys.objects` and `sys.sql_modules`
 - procedure parameters from `sys.parameters`
 - module dependencies from `sys.sql_expression_dependencies`
-
-This means the RAG corpus is built from the live database catalog, not manual documentation.
-
-It also extracts:
-
 - CHECK constraints from `sys.check_constraints` (valid values for code columns)
 - column value profiles for short `CHAR`/`VARCHAR` columns (top 10 values by frequency from actual data)
+
+This means the RAG corpus is built from the live database catalog, not manual documentation.
 
 ---
 
 ## What Gets Stored in Qdrant
 
-The collection name is `sql_context`.
+Each database gets its own collection named `sql_context_<dbId>` (e.g., `sql_context_AdventureWorks2019`).
 
 Each stored point contains:
 
@@ -169,45 +194,74 @@ This metadata is not what gets embedded; it is stored with the vector point to h
 
 The seeding script is `services/query-engine/src/rag/seed.ts`.
 
-Flow:
+### Multi-Database Seeding
 
-1. Load environment variables
-2. Read `DB_CONNECTION_STRING`
-3. Query SQL Server system catalog views and DMVs
-4. Build chunk documents for tables, relationships, procedures, and views
-5. Generate embeddings with Gemini
-6. Upsert points into Qdrant collection `sql_context`
+The seed script supports seeding individual databases or all registered databases at once.
 
-Run it with:
+**Seed a single database:**
 
 ```bash
 cd services/query-engine
-npm run seed
+npx tsx src/rag/seed.ts --db bykestores
 ```
 
-Because the old Qdrant data was removed, the next seed run will repopulate the collection from the current database state.
+**Seed all registered databases:**
+
+```bash
+cd services/query-engine
+npx tsx src/rag/seed.ts --db all
+```
+
+Flow per database:
+
+1. Load environment variables and database registry
+2. Read the database's connection string from `DB_REGISTRY`
+3. Query that database's SQL Server system catalog views and DMVs
+4. Build chunk documents for tables, relationships, procedures, views, and column profiles
+5. Generate embeddings with Gemini
+6. Upsert points into the database's Qdrant collection (`sql_context_<dbId>`)
+
+Each database is seeded independently into its own collection, so reseeding one database does not affect others.
 
 ---
 
 ## Retrieval Flow
 
-At query time:
+At query time, retrieval operates per-database using the `dbId` from the request.
+
+### Retrieval Modes
+
+Controlled by the `RAG_MODE` environment variable:
+
+#### `RAG_MODE=all` (current default)
+
+All chunks from the database's Qdrant collection are fetched via scroll and injected into the prompt. This gives the LLM the complete schema — every table, relationship, view, procedure, and column profile.
+
+Best for databases with fewer than ~200 tables where the full schema fits within the LLM's context window. Eliminates retrieval misses entirely.
+
+#### `RAG_MODE=similarity` (default when `RAG_MODE` is not set)
 
 1. The user question is embedded with Gemini
-2. Qdrant returns the top matching chunks
-3. Retrieved chunks are grouped by object type
-4. The API assembles a single context string containing:
-   - table context
-   - relationship context
-   - view context
-   - procedure context
-5. That context is injected into the SQL-generation prompt
+2. Qdrant returns the top-K most similar chunks (configured via `RAG_TOP_K`, default 50)
+3. Chunks below `RAG_SCORE_THRESHOLD` (default 0.35) are filtered out
+4. **Graph expansion** follows foreign-key relationships across 2 hops to pull in related tables the initial search may have missed
+5. Retrieved chunks are grouped by object type
 
-The LLM therefore sees structural database knowledge, not the full catalog.
+Graph expansion example: a question about "vendor revenue" retrieves `Purchasing.Vendor` → hop 1 follows FK to `Production.Product` → hop 2 follows FK to `Sales.SalesOrderDetail`.
+
+### Context Assembly (both modes)
+
+Retrieved chunks are grouped and assembled into a single context string containing:
+
+- table context (DDL, columns, constraints)
+- relationship context (FK join conditions)
+- view context
+- procedure context
+- column profile context
+
+That context is injected into the SQL-generation prompt.
 
 ### Debug endpoint
-
-There is also a debug API endpoint for inspecting retrieval behavior without executing SQL:
 
 `POST /rag-inspect`
 
@@ -215,8 +269,9 @@ Request body:
 
 ```json
 {
-   "question": "Show total AUM by advisor",
-   "topK": 10
+  "question": "Show total AUM by advisor",
+  "dbId": "lpl_poc",
+  "topK": 10
 }
 ```
 
@@ -263,6 +318,18 @@ Because of that, the application still needs:
 
 ---
 
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DB_REGISTRY` | — | JSON array of database configs (`dbId`, `displayName`, `connectionString`) |
+| `QDRANT_URL` | `http://localhost:6333` | Qdrant server URL |
+| `RAG_MODE` | `similarity` | `all` = fetch entire schema; `similarity` = embedding-based search |
+| `RAG_TOP_K` | `15` | Number of chunks to fetch in similarity mode |
+| `RAG_SCORE_THRESHOLD` | `0.45` | Minimum cosine similarity score in similarity mode |
+
+---
+
 ## Design Choices We Made
 
 - We store multiple chunk types instead of one huge schema blob.
@@ -270,6 +337,9 @@ Because of that, the application still needs:
 - We keep stable point IDs so reseeding updates the same logical chunks.
 - We segment large procedures/views to avoid oversized embeddings.
 - We return retrieved table names from both direct table hits and referenced-table metadata.
+- We use one Qdrant collection per database to isolate schemas.
+- We support `RAG_MODE=all` for small-to-medium databases to eliminate retrieval misses.
+- We use multi-hop graph expansion in similarity mode to bridge cross-schema joins (e.g., Purchasing → Production → Sales).
 
 ---
 

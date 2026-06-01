@@ -27,6 +27,9 @@
       <div class="panel-title">SQL editor</div>
       <textarea [(ngModel)]="editableSql" spellcheck="false"></textarea>
       <div class="editor-actions">
+        <button type="button" class="secondary-button" (click)="regenerate.emit()" [disabled]="loading">
+          ↻ Regenerate
+        </button>
         <button type="button" class="primary-button" (click)="submit()" [disabled]="loading || !editableSql.trim()">
           {{ loading ? 'Running...' : 'Run SQL' }}
         </button>

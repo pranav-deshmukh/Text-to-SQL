@@ -1,4 +1,4 @@
-import { searchDocuments, getDocumentById, SearchResult } from "./vectorStore";
+import { searchDocuments, getDocumentById, getAllDocuments, SearchResult } from "./vectorStore";
 
 /**
  * RAG Retriever — Step 2 in architecture.
@@ -48,45 +48,63 @@ function extractTableNames(metadata: SearchResult["metadata"]): string[] {
  * Given a user question, retrieve the top-K most relevant table schemas.
  * Returns a formatted context string ready for the prompt assembler.
  */
-const BACKFILL_SCORE_THRESHOLD = 0.60;
-const MAX_BACKFILL = 5;
+const MAX_BACKFILL_PER_HOP = 20;
+const MAX_HOPS = 2;
 
 /**
- * If RAG retrieved a profile/relationship for a table but NOT the table definition itself,
- * fetch the table chunk by ID. Ensures the LLM always sees full column list + relationships
- * for any table referenced in retrieved context.
- *
- * Only backfills from high-scoring chunks (>0.60) and caps at 5 to prevent prompt bloat.
- * Uses O(1) point lookups — negligible latency even with 1000s of tables.
+ * Multi-hop graph expansion: starting from retrieved chunks, follow referenced tables
+ * across multiple hops to ensure cross-domain joins are discoverable.
+ * 
+ * Example: "revenue by vendor" retrieves Vendor → ProductVendor → (hop 1) Product → (hop 2) SalesOrderDetail
+ * 
+ * Uses O(1) point lookups per table — negligible latency even with 1000s of tables.
  */
-async function backfillMissingTableChunks(collectionName: string, results: SearchResult[]): Promise<SearchResult[]> {
-  const referencedTables = new Set<string>();
-  for (const result of results) {
-    if (result.score >= BACKFILL_SCORE_THRESHOLD) {
-      const tables = extractTableNames(result.metadata);
-      tables.forEach(t => referencedTables.add(t));
-    }
-  }
-
+async function graphExpandTableChunks(collectionName: string, results: SearchResult[]): Promise<SearchResult[]> {
+  const allResults = [...results];
   const tablesWithDefinition = new Set<string>();
+
+  // Track which tables we already have definitions for
   for (const result of results) {
     if (result.metadata.objectType === "table" && result.metadata.tableName) {
       tablesWithDefinition.add(result.metadata.tableName as string);
     }
   }
 
-  const missingTables = [...referencedTables].filter(t => !tablesWithDefinition.has(t));
-  const backfilled: SearchResult[] = [];
-
-  for (const tableName of missingTables.slice(0, MAX_BACKFILL)) {
-    const doc = await getDocumentById(collectionName, `table:${tableName}`);
-    if (doc) {
-      console.log(`[Retriever] ⬆️ Backfilled table definition: ${tableName}`);
-      backfilled.push(doc);
-    }
+  // Collect all referenced tables from ALL retrieved chunks (no score threshold)
+  let frontier = new Set<string>();
+  for (const result of results) {
+    const tables = extractTableNames(result.metadata);
+    tables.forEach(t => {
+      if (!tablesWithDefinition.has(t)) frontier.add(t);
+    });
   }
 
-  return [...results, ...backfilled];
+  // Multi-hop expansion
+  for (let hop = 0; hop < MAX_HOPS && frontier.size > 0; hop++) {
+    const nextFrontier = new Set<string>();
+    const toFetch = [...frontier].slice(0, MAX_BACKFILL_PER_HOP);
+
+    for (const tableName of toFetch) {
+      if (tablesWithDefinition.has(tableName)) continue;
+
+      const doc = await getDocumentById(collectionName, `table:${tableName}`);
+      if (doc) {
+        console.log(`[Retriever] ⬆️ Hop ${hop + 1} expansion: ${tableName}`);
+        allResults.push(doc);
+        tablesWithDefinition.add(tableName);
+
+        // Discover next-hop tables from the newly fetched chunk's relationships
+        const nextTables = extractTableNames(doc.metadata);
+        nextTables.forEach(t => {
+          if (!tablesWithDefinition.has(t)) nextFrontier.add(t);
+        });
+      }
+    }
+
+    frontier = nextFrontier;
+  }
+
+  return allResults;
 }
 
 export async function retrieveContextDetailed(
@@ -95,11 +113,14 @@ export async function retrieveContextDetailed(
   topK: number = DEFAULT_TOP_K,
   scoreThreshold: number = DEFAULT_SCORE_THRESHOLD
 ): Promise<RetrievedContextDetailed> {
-  const raw: SearchResult[] = await searchDocuments(collectionName, question, topK);
-  let results = raw.filter((r) => r.score >= scoreThreshold);
+  // Semantic vector search — retrieve most relevant chunks for this question
+  let results: SearchResult[] = await searchDocuments(collectionName, question, topK);
+  results = results.filter(r => r.score >= scoreThreshold);
 
-  // Backfill: if we got a profile/relationship for a table but not its definition, fetch it
-  results = await backfillMissingTableChunks(collectionName, results);
+  // Multi-hop graph expansion: follow FK relationships to pull in related tables
+  results = await graphExpandTableChunks(collectionName, results);
+
+  console.log(`[Retriever] 📦 Retrieved ${results.length} chunks from ${collectionName} (topK=${topK}, threshold=${scoreThreshold})`);
 
   const groupedResults = new Map<string, SearchResult[]>();
   for (const result of results) {

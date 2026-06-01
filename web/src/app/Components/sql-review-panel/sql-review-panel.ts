@@ -31,6 +31,7 @@ export class SqlReviewPanelComponent implements OnChanges {
   @Input({ required: true }) draft!: SqlReviewDraft;
   @Input() loading = false;
   @Output() runSql = new EventEmitter<string>();
+  @Output() regenerate = new EventEmitter<void>();
   @Output() cancel = new EventEmitter<void>();
 
   editableSql = '';

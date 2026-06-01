@@ -20,12 +20,18 @@ function afterGeneration(state: AgentStateType): "validate" | "retrieve" | "erro
 /**
  * Conditional edge after validation:
  * - valid → execute
- * - invalid + retries left → retrieve (retry with error context)
+ * - syntax invalid + retries left → generate (retry directly with error context)
+ * - schema/context invalid + retries left → retrieve (retry with error context)
  * - invalid + max retries → error
  */
-function afterValidation(state: AgentStateType): "execute" | "retrieve" | "error" {
+function afterValidation(state: AgentStateType): "execute" | "generate" | "retrieve" | "error" {
   if (!state.validationError) return "execute";
   if (state.retryCount >= MAX_ATTEMPTS) return "error";
+
+  if (state.validationError.includes("SQL syntax error (PARSEONLY)")) {
+    return "generate";
+  }
+
   return "retrieve";
 }
 
@@ -47,15 +53,20 @@ function afterExecution(state: AgentStateType): "__end__" | "generate" | "error"
  * Flow:
  *   retrieve → generate → validate ─(valid)─→ execute → END
  *                              │                   │
- *                         (invalid)           (exec error)
+ *                    (syntax invalid)        (exec error)
  *                              │                   │
  *                              ▼                   ▼
- *                          retrieve            generate
- *                         (retry)              (retry)
- *                              │                   │
- *                       (max retries?)       (max retries?)
- *                              ▼                   ▼
- *                           ERROR               ERROR
+ *                          generate            generate
+ *                              │
+ *                    (schema/context invalid)
+ *                              │
+ *                              ▼
+ *                          retrieve
+ *                         (retry path)
+ *                              │
+ *                       (max retries?)
+ *                              ▼
+ *                            ERROR
  */
 export function buildAgentGraph() {
   const graph = new StateGraph(AgentState)
@@ -73,6 +84,7 @@ export function buildAgentGraph() {
     })
     .addConditionalEdges("validate", afterValidation, {
       execute: "execute",
+      generate: "generate",
       retrieve: "retrieve",
       error: "error",
     })
