@@ -2,6 +2,9 @@
 services/query-engine/.env
 services/query-engine/.env.*
 !services/query-engine/.env.example
+services/query-engine-py/.env
+services/query-engine-py/.env.*
+!services/query-engine-py/.env.example
 web/.env
 web/.env.*
 
@@ -9,11 +12,22 @@ web/.env.*
 services/query-engine/node_modules/
 web/node_modules/
 
+# Python virtual environment
+services/query-engine-py/.venv/
+
+# Python cache / build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+services/query-engine-py/src/query_engine_py.egg-info/
+
 # Build outputs
 web/.angular/
 web/dist/
 services/query-engine/dist/
 services/query-engine/logs/
+services/query-engine-py/logs/
 
 # Local docs
 context.md

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "query-engine-py"
+version = "0.1.0"
+description = "Python LangGraph query engine for Text-to-SQL"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "langgraph>=0.2.0",
+  "google-genai>=1.20.0",
+  "qdrant-client>=1.10.0",
+  "pyodbc>=5.1.0",
+  "bcrypt>=4.2.0",
+  "PyJWT>=2.9.0",
+  "pydantic>=2.8.0",
+  "pydantic-settings>=2.4.0",
+  "python-dotenv>=1.0.1"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
