@@ -113,14 +113,10 @@ export async function retrieveContextDetailed(
   topK: number = DEFAULT_TOP_K,
   scoreThreshold: number = DEFAULT_SCORE_THRESHOLD
 ): Promise<RetrievedContextDetailed> {
-  // Semantic vector search — retrieve most relevant chunks for this question
-  let results: SearchResult[] = await searchDocuments(collectionName, question, topK);
-  results = results.filter(r => r.score >= scoreThreshold);
+  // Load ALL chunks from the collection — complete schema context for the LLM
+  let results: SearchResult[] = await getAllDocuments(collectionName);
 
-  // Multi-hop graph expansion: follow FK relationships to pull in related tables
-  results = await graphExpandTableChunks(collectionName, results);
-
-  console.log(`[Retriever] 📦 Retrieved ${results.length} chunks from ${collectionName} (topK=${topK}, threshold=${scoreThreshold})`);
+  console.log(`[Retriever] 📦 Loaded ALL ${results.length} chunks from ${collectionName}`);
 
   const groupedResults = new Map<string, SearchResult[]>();
   for (const result of results) {
