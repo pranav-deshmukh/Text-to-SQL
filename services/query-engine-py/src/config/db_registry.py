@@ -1,4 +1,5 @@
 import json
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -58,6 +59,30 @@ def _parse_json_registry() -> list[DatabaseConfig]:
     return [_to_database_config(entry, index) for index, entry in enumerate(parsed)]
 
 
+def _parse_env_registry() -> list[DatabaseConfig]:
+    settings = get_settings()
+    raw_ids = (settings.registered_dbs or "").split(",")
+    db_ids = [value.strip() for value in raw_ids if value.strip()]
+    databases: list[DatabaseConfig] = []
+
+    for index, db_id in enumerate(db_ids):
+        env_key = db_id.upper()
+        display_name = os.getenv(f"DB_DISPLAY_NAME_{env_key}")
+        connection_string = os.getenv(f"DB_CONNECTION_STRING_{env_key}")
+        databases.append(
+            _to_database_config(
+                {
+                    "dbId": db_id,
+                    "displayName": display_name,
+                    "connectionString": connection_string,
+                },
+                index,
+            )
+        )
+
+    return databases
+
+
 def _build_fallback_registry() -> list[DatabaseConfig]:
     settings = get_settings()
     connection_string = (settings.db_connection_string or "").strip()
@@ -89,6 +114,11 @@ def get_registered_databases() -> list[DatabaseConfig]:
     json_registry = _parse_json_registry()
     if json_registry:
         return _validate_databases(json_registry)
+
+    env_registry = _parse_env_registry()
+    if env_registry:
+        return _validate_databases(env_registry)
+
     return _validate_databases(_build_fallback_registry())
 
 

@@ -27,8 +27,10 @@ After the virtual environment already exists, start it like this:
 ```powershell
 cd services/query-engine-py
 .venv\Scripts\Activate.ps1
-uvicorn main:app --reload --app-dir src --port 3001
+query-engine-py
 ```
+
+That command starts the FastAPI server on `http://127.0.0.1:3001`.
 
 ## Environment Variables
 
@@ -57,7 +59,13 @@ In normal daily use, you only need to:
 ```powershell
 cd services/query-engine-py
 .venv\Scripts\Activate.ps1
-uvicorn main:app --reload --app-dir src --port 3001
+query-engine-py
+```
+
+If you added this command after your virtual environment was already created, run this once to refresh the installed entrypoint:
+
+```powershell
+python -m pip install -e .
 ```
 
 ## Current Status

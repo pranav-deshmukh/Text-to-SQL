@@ -2,8 +2,9 @@ from uuid import uuid4
 
 from time import perf_counter
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 
 from agent.service import execute_agent, stream_agent
 from agent.review_flow import (
@@ -18,7 +19,7 @@ from agent.review_flow import (
 )
 from api.models import QueryRequest, RagInspectRequest, ReviewCancelRequest, ReviewRegenerateRequest, ReviewRunRequest
 from audit.config import get_audit_config
-from audit.db_store import sync_audit_databases
+from audit.db_store import query_audit_logs, sync_audit_databases
 from audit.logger import begin_audit, complete_audit, log_event, stage_cancelled, stage_error, stage_success, start_stage
 from auth.middleware import require_auth
 from auth.models import AuthUser, LoginRequest, LoginResponse, SignupRequest
@@ -44,9 +45,14 @@ from config.db_registry import get_database_config, get_registered_databases
 from config.settings import get_settings
 from llm.prompts import assemble_prompt_from_rag
 from rag.retriever import retrieve_context
+from validator.sql_validator import register_validator
 
 settings = get_settings()
 app = FastAPI(title="query-engine-py", version="0.1.0")
+
+
+def run() -> None:
+    uvicorn.run("main:app", host="127.0.0.1", port=3001, reload=True, app_dir="src")
 
 app.add_middleware(
     CORSMiddleware,
@@ -98,6 +104,8 @@ async def request_logging_middleware(request: Request, call_next):
 async def startup() -> None:
     await register_auth_store()
     await register_chat_store()
+    for database in get_registered_databases():
+        await register_validator(database.db_id, database.connection_string)
     if get_audit_config().enabled:
         await sync_audit_databases(get_registered_databases())
 
@@ -204,7 +212,7 @@ async def rag_inspect(request: RagInspectRequest, _user: AuthUser = Depends(requ
         raise HTTPException(status_code=400, detail=f'Unknown database: "{request.dbId}". Use GET /databases for available options.')
 
     try:
-        rag_context = await retrieve_context(request.question, database.qdrant_collection)
+        rag_context = await retrieve_context(request.question, database.qdrant_collection, top_k=request.topK)
         system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"], request.question)
         return {
             "question": request.question,
@@ -212,10 +220,14 @@ async def rag_inspect(request: RagInspectRequest, _user: AuthUser = Depends(requ
             "retrievedTables": rag_context["tables"],
             "matches": [
                 {
-                    "id": match.id,
-                    "score": match.score,
-                    "metadata": match.metadata,
-                    "text": match.text,
+                    "id": match["id"],
+                    "score": match["score"],
+                    "objectType": match.get("objectType"),
+                    "objectName": match.get("objectName"),
+                    "schemaName": match.get("schemaName"),
+                    "tableName": match.get("tableName"),
+                    "referencedTables": match.get("referencedTables", []),
+                    "text": match["text"],
                 }
                 for match in rag_context["matches"]
             ],
@@ -230,6 +242,7 @@ async def rag_inspect(request: RagInspectRequest, _user: AuthUser = Depends(requ
 
 
 @app.post("/query/initiate")
+@app.post("/query")
 async def query_initiate(request: QueryRequest, raw_request: Request, user: AuthUser = Depends(require_auth)) -> dict:
     database = next((db for db in get_registered_databases() if db.db_id == request.dbId), None)
     if not database:
@@ -469,3 +482,48 @@ async def query_status(thread_id: str, user: AuthUser = Depends(require_auth)) -
     if result is None:
         raise HTTPException(status_code=404, detail={"error": "Review session not found or has expired.", "code": "REVIEW_SESSION_NOT_FOUND"})
     return result
+
+
+@app.get("/config")
+async def app_config(_user: AuthUser = Depends(require_auth)) -> dict:
+    return {
+        "agent": {
+            "maxRetries": settings.agent_max_retries,
+            "maxAttempts": settings.agent_max_retries + 1,
+        }
+    }
+
+
+@app.get("/logs/api")
+async def logs_api(
+    q: str | None = None,
+    status: str | None = None,
+    stage: str | None = None,
+    dbId: str | None = None,
+    env: str = "all",
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = None,
+    page: int = 1,
+    pageSize: int = 20,
+    user: AuthUser = Depends(require_auth),
+) -> dict:
+    if user.role != "tech_team":
+        raise HTTPException(status_code=403, detail={"error": "You do not have permission to perform this action.", "code": "FORBIDDEN"})
+
+    audit_config = get_audit_config()
+    if audit_config.app_env != "dev" or not audit_config.ui_enabled:
+        raise HTTPException(status_code=403, detail={"error": "Logs API is available only in dev mode."})
+
+    return await query_audit_logs(
+        {
+            "q": q,
+            "stage": stage,
+            "status": status if status in {"success", "error", "cancelled"} else None,
+            "from": from_,
+            "to": to,
+            "dbId": dbId,
+            "env": env if env in {"dev", "prod", "all"} else "all",
+            "page": max(1, page),
+            "pageSize": min(100, max(1, pageSize)),
+        }
+    )
