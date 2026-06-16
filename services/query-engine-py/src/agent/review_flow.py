@@ -18,6 +18,15 @@ from rag.retriever import retrieve_context
 from validator.sql_validator import validate_sql
 
 
+def _table_names(tables: list[dict[str, Any]]) -> list[str]:
+    names: list[str] = []
+    for table in tables:
+        table_name = table.get("tableName")
+        if isinstance(table_name, str) and table_name:
+            names.append(table_name)
+    return names
+
+
 def _build_draft_response(session) -> dict[str, Any]:
     return {
         "status": "awaiting_review",
@@ -50,7 +59,7 @@ async def initiate_review_flow(question: str, user_id: str, db_id: str) -> dict[
             "editable_sql": generated_sql,
             "schema_context": rag_context["schemaContext"],
             "prompt_preview": {"systemPrompt": system_prompt, "userPrompt": user_prompt},
-            "retrieved_tables": rag_context["tables"],
+            "retrieved_tables": _table_names(rag_context["tables"]),
         }
     )
     return _build_draft_response(session)
@@ -64,7 +73,7 @@ def stream_review_flow(question: str, user_id: str, db_id: str, on_complete=None
                 raise ValueError(f"Unknown database: {db_id}")
 
             rag_context = await retrieve_context(question, database.qdrant_collection)
-            yield f"event: node_end\ndata: {json.dumps({'node': 'retrieve', 'retrievedTables': rag_context['tables'], 'status': 'done'})}\n\n"
+            yield f"event: node_end\ndata: {json.dumps({'node': 'retrieve', 'retrievedTables': _table_names(rag_context['tables']), 'status': 'done'})}\n\n"
 
             system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"], question)
             generated_sql = (await call_llm(system_prompt, user_prompt)).strip()
@@ -80,7 +89,7 @@ def stream_review_flow(question: str, user_id: str, db_id: str, on_complete=None
                     "editable_sql": generated_sql,
                     "schema_context": rag_context["schemaContext"],
                     "prompt_preview": {"systemPrompt": system_prompt, "userPrompt": user_prompt},
-                    "retrieved_tables": rag_context["tables"],
+                    "retrieved_tables": _table_names(rag_context["tables"]),
                 }
             )
             payload = _build_draft_response(session)
@@ -183,7 +192,7 @@ async def regenerate_review_flow(thread_id: str, user_id: str) -> dict[str, Any]
             "editable_sql": generated_sql,
             "schema_context": rag_context["schemaContext"],
             "prompt_preview": {"systemPrompt": system_prompt, "userPrompt": user_prompt},
-            "retrieved_tables": rag_context["tables"],
+            "retrieved_tables": _table_names(rag_context["tables"]),
             "last_error": None,
         },
     )

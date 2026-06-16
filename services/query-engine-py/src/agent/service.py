@@ -131,7 +131,7 @@ def stream_agent(question: str, db_id: str, on_complete=None, response_meta: dic
             payload = {
                 "error": str(exc),
                 "detail": str(exc),
-                "phase": "generation",
+                "phase": "internal",
                 "code": "PY_AGENT_STREAM_ERROR",
                 "maxRetries": settings.agent_max_retries,
                 "maxAttempts": settings.agent_max_retries + 1,

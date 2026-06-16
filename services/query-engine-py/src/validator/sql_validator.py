@@ -15,6 +15,8 @@ DANGEROUS_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+ALLOWED_TABLES_MAP: dict[str, set[str]] = {}
+
 
 def _sanitize(sql: str) -> ValidationResult:
     trimmed = sql.strip().rstrip(";")
@@ -49,8 +51,79 @@ def _check_parseonly(sql: str, connection_string: str) -> ValidationResult:
         return ValidationResult(valid=False, error=f"Validation connection failed: {exc}")
 
 
+async def register_validator(db_id: str, connection_string: str) -> None:
+    query = """
+        SELECT TABLE_SCHEMA + '.' + TABLE_NAME AS full_name
+        FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_TYPE = 'BASE TABLE'
+    """
+
+    connection = pyodbc.connect(connection_string)
+    try:
+        cursor = connection.cursor()
+        cursor.execute(query)
+        tables = {
+            str(row.full_name).lower()
+            for row in cursor.fetchall()
+            if getattr(row, "full_name", None)
+        }
+        ALLOWED_TABLES_MAP[db_id] = tables
+    finally:
+        connection.close()
+
+
+def _extract_cte_names(sql: str) -> set[str]:
+    cte_pattern = re.compile(r"\b(\w+)\s+AS\s*\(", re.IGNORECASE)
+    return {match.group(1).lower() for match in cte_pattern.finditer(sql)}
+
+
+def _extract_table_names(sql: str) -> list[str]:
+    table_pattern = re.compile(r"(?:FROM|JOIN)\s+([\w]+\.[\w]+|[\w]+)", re.IGNORECASE)
+    return list({match.group(1).lower() for match in table_pattern.finditer(sql)})
+
+
+def _check_schema(sql: str, db_id: str) -> ValidationResult:
+    allowed_tables = ALLOWED_TABLES_MAP.get(db_id)
+    if allowed_tables is None:
+        return ValidationResult(valid=False, error=f"Validator not initialized for database: {db_id}.")
+
+    cte_names = _extract_cte_names(sql)
+    table_names = _extract_table_names(sql)
+
+    allowed_sys_views = {
+        "sys.tables",
+        "sys.schemas",
+        "sys.partitions",
+        "sys.columns",
+        "sys.indexes",
+        "sys.objects",
+        "sys.types",
+        "sys.views",
+    }
+
+    for table_name in table_names:
+        if table_name in cte_names:
+            continue
+        if table_name.startswith("information_schema."):
+            continue
+        if table_name in allowed_sys_views:
+            continue
+        if table_name not in allowed_tables:
+            allowed = ", ".join(sorted(allowed_tables))
+            return ValidationResult(valid=False, error=f'Unknown table referenced: "{table_name}". Allowed tables: {allowed}.')
+
+    return ValidationResult(valid=True)
+
+
 async def validate_sql(sql: str, db_id: str, connection_string: str) -> ValidationResult:
-    sanitize_result = _sanitize(sql)
+    clean_sql = sql.strip().rstrip(";")
+
+    sanitize_result = _sanitize(clean_sql)
     if not sanitize_result.valid:
         return sanitize_result
-    return _check_parseonly(sql, connection_string)
+
+    parse_result = _check_parseonly(clean_sql, connection_string)
+    if not parse_result.valid:
+        return parse_result
+
+    return _check_schema(clean_sql, db_id)
