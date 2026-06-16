@@ -21,8 +21,12 @@ dependencies = [
   "python-dotenv>=1.0.1"
 ]
 
+[project.scripts]
+query-engine-py = "main:run"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
+py-modules = ["main"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

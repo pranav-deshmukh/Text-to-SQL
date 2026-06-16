@@ -4,6 +4,7 @@ from time import perf_counter
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 
 from agent.service import execute_agent, stream_agent
 from agent.review_flow import (
@@ -48,6 +49,10 @@ from validator.sql_validator import register_validator
 
 settings = get_settings()
 app = FastAPI(title="query-engine-py", version="0.1.0")
+
+
+def run() -> None:
+    uvicorn.run("main:app", host="127.0.0.1", port=3001, reload=True, app_dir="src")
 
 app.add_middleware(
     CORSMiddleware,
