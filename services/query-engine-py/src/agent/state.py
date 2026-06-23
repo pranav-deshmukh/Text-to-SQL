@@ -4,6 +4,7 @@ from typing import Literal, TypedDict
 class AgentState(TypedDict, total=False):
     question: str
     db_id: str
+    conversation_history: str
     context: str
     retrieved_tables: list[str]
     sql: str
