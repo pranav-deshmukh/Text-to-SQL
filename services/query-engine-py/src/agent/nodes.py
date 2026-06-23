@@ -36,6 +36,7 @@ async def generate_node(state: AgentState) -> AgentState:
         system_prompt, user_prompt = assemble_prompt_from_rag(
             state.get("context", "") + error_context,
             state["question"],
+            conversation_history=state.get("conversation_history", ""),
         )
         sql = (await call_llm(system_prompt, user_prompt)).strip()
 

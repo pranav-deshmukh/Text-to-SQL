@@ -10,6 +10,7 @@ from agent.review_sessions import (
     get_review_session,
     update_review_session,
 )
+from chat.context import load_conversation_history
 from config.db_registry import get_database_config
 from executor.sql_executor import execute_sql
 from llm.gemini import call_llm
@@ -41,12 +42,13 @@ def _build_draft_response(session) -> dict[str, Any]:
     }
 
 
-async def initiate_review_flow(question: str, user_id: str, db_id: str) -> dict[str, Any]:
+async def initiate_review_flow(question: str, user_id: str, db_id: str, conversation_id: str | None = None) -> dict[str, Any]:
     database = get_database_config(db_id)
     if database is None:
         raise ValueError(f"Unknown database: {db_id}")
+    conversation_history = load_conversation_history(conversation_id, current_db_id=db_id)
     rag_context = await retrieve_context(question, database.qdrant_collection)
-    system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"], question)
+    system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"], question, conversation_history=conversation_history)
     generated_sql = (await call_llm(system_prompt, user_prompt)).strip()
     if not generated_sql or generated_sql.upper() == "ERROR":
         raise ValueError("The language model did not return a usable SQL query.")
@@ -65,17 +67,18 @@ async def initiate_review_flow(question: str, user_id: str, db_id: str) -> dict[
     return _build_draft_response(session)
 
 
-def stream_review_flow(question: str, user_id: str, db_id: str, on_complete=None, response_meta: dict[str, Any] | None = None) -> StreamingResponse:
+def stream_review_flow(question: str, user_id: str, db_id: str, on_complete=None, response_meta: dict[str, Any] | None = None, conversation_id: str | None = None) -> StreamingResponse:
     async def event_generator():
         try:
             database = get_database_config(db_id)
             if database is None:
                 raise ValueError(f"Unknown database: {db_id}")
 
+            conversation_history = load_conversation_history(conversation_id, current_db_id=db_id)
             rag_context = await retrieve_context(question, database.qdrant_collection)
             yield f"event: node_end\ndata: {json.dumps({'node': 'retrieve', 'retrievedTables': _table_names(rag_context['tables']), 'status': 'done'})}\n\n"
 
-            system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"], question)
+            system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"], question, conversation_history=conversation_history)
             generated_sql = (await call_llm(system_prompt, user_prompt)).strip()
             if not generated_sql or generated_sql.upper() == "ERROR":
                 raise ValueError("The language model did not return a usable SQL query.")
@@ -181,7 +184,8 @@ async def regenerate_review_flow(thread_id: str, user_id: str) -> dict[str, Any]
         else session.question
     )
     rag_context = await retrieve_context(enriched_query, database.qdrant_collection)
-    system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"] + error_context, session.question)
+    conversation_history = load_conversation_history(session.conversation_id, current_db_id=session.db_id)
+    system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"] + error_context, session.question, conversation_history=conversation_history)
     generated_sql = (await call_llm(system_prompt, user_prompt)).strip()
     if not generated_sql or generated_sql.upper() == "ERROR":
         raise ValueError("The language model did not return a usable SQL query on regeneration.")
