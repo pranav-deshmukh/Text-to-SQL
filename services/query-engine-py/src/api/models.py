@@ -5,6 +5,7 @@ class QueryRequest(BaseModel):
     question: str
     dbId: str
     conversationId: str | None = None
+    neededColumns: list[str] | None = None
 
 
 class RagInspectRequest(BaseModel):
@@ -22,6 +23,7 @@ class ReviewRunRequest(BaseModel):
 class ReviewRegenerateRequest(BaseModel):
     threadId: str
     conversationId: str | None = None
+    neededColumns: list[str] | None = None
 
 
 class ReviewCancelRequest(BaseModel):

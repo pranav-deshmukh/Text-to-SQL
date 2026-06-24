@@ -55,8 +55,8 @@ export class QueryService {
     return this.http.get<DatabaseListResponse>(`${this.apiUrl}/databases`);
   }
 
-  initiateQuestion(question: string, dbId: string, conversationId?: string): Observable<QueryResponse> {
-    const payload: QueryRequest = { question, dbId, conversationId };
+  initiateQuestion(question: string, dbId: string, conversationId?: string, neededColumns?: string[]): Observable<QueryResponse> {
+    const payload: QueryRequest = { question, dbId, conversationId, neededColumns };
     return this.http.post<QueryResponse>(`${this.apiUrl}/query/initiate`, payload);
   }
 
@@ -64,8 +64,8 @@ export class QueryService {
     return this.http.post<QueryResponse>(`${this.apiUrl}/query/resume`, { threadId, approvedSQL, conversationId });
   }
 
-  regenerateQuestion(threadId: string, conversationId?: string): Observable<QueryResponse> {
-    return this.http.post<QueryResponse>(`${this.apiUrl}/query/regenerate`, { threadId, conversationId });
+  regenerateQuestion(threadId: string, conversationId?: string, neededColumns?: string[]): Observable<QueryResponse> {
+    return this.http.post<QueryResponse>(`${this.apiUrl}/query/regenerate`, { threadId, conversationId, neededColumns });
   }
 
   cancelReview(threadId: string, reason?: string): Observable<QueryResponse> {
