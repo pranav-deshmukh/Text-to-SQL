@@ -1,3 +1,5 @@
+import re
+
 from config.settings import get_settings
 from rag.vector_store import SearchResult, get_all_documents, get_document_by_id, search_documents
 
@@ -5,6 +7,8 @@ settings = get_settings()
 
 MAX_BACKFILL_PER_HOP = 20
 MAX_HOPS = 2
+
+_COLUMN_LINE_RE = re.compile(r"^- (.+?):\s+(.+?)(?:\s+\[.*\])?$")
 
 
 def _extract_table_names(metadata: dict) -> list[str]:
@@ -72,6 +76,41 @@ def _to_tables(matches: list[SearchResult]) -> list[dict]:
         {"tableName": table_name, "score": score}
         for table_name, score in best_score_by_table.items()
     ]
+
+
+def _extract_available_columns(matches: list[SearchResult]) -> list[dict]:
+    """
+    Parse column names and data types from table-type RAG chunks.
+    Returns: [{"tableName": "dbo.X", "columns": [{"name": "col", "dataType": "varchar(50)"}]}]
+    """
+    result: list[dict] = []
+    for match in matches:
+        if match.metadata.get("objectType") != "table":
+            continue
+        table_name = match.metadata.get("tableName")
+        if not table_name:
+            continue
+
+        columns: list[dict] = []
+        in_columns_section = False
+        for line in match.text.split("\n"):
+            stripped = line.strip()
+            if stripped == "COLUMNS:":
+                in_columns_section = True
+                continue
+            if in_columns_section:
+                if stripped.startswith("- "):
+                    col_match = _COLUMN_LINE_RE.match(stripped)
+                    if col_match:
+                        columns.append({"name": col_match.group(1), "dataType": col_match.group(2).strip()})
+                else:
+                    # End of COLUMNS section (hit OUTBOUND RELATIONSHIPS or similar)
+                    break
+
+        if columns:
+            result.append({"tableName": table_name, "columns": columns})
+
+    return result
 
 
 async def _graph_expand_table_chunks(collection_name: str, results: list[SearchResult]) -> list[SearchResult]:
@@ -150,6 +189,7 @@ async def retrieve_context_detailed(
         "schemaContext": _to_schema_context(matches),
         "tables": _to_tables(matches),
         "matches": [_to_detailed_match(match) for match in matches],
+        "availableColumns": _extract_available_columns(matches),
     }
 
 
@@ -159,4 +199,5 @@ async def retrieve_context(question: str, collection_name: str, top_k: int | Non
         "schemaContext": result["schemaContext"],
         "tables": result["tables"],
         "matches": result["matches"],
+        "availableColumns": result["availableColumns"],
     }

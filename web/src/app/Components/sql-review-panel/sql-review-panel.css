@@ -173,3 +173,71 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+.available-columns-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.available-columns-panel {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.columns-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.column-table-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.column-table-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--teal-bright);
+  letter-spacing: 0.03em;
+}
+
+.column-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.column-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.column-option input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--teal-primary);
+  cursor: pointer;
+}
+
+.col-name {
+  font-family: 'DM Mono', monospace;
+}
+
+.col-type {
+  color: var(--text-muted);
+  font-size: 11px;
+}

@@ -11,6 +11,7 @@ export interface QueryResponse {
   editableSQL?: string;
   schemaContext?: string;
   retrievedTables?: string[];
+  availableColumns?: { tableName: string; columns: { name: string; dataType: string }[] }[];
   promptPreview?: {
     systemPrompt: string;
     userPrompt: string;

@@ -447,7 +447,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
     }
   }
 
-  async regenerateReviewSql(): Promise<void> {
+  async regenerateReviewSql(neededColumns?: string[]): Promise<void> {
     if (!this.pendingReview || this.reviewLoading) {
       return;
     }
@@ -457,7 +457,11 @@ export class QuotesComponent implements OnInit, OnDestroy {
 
     try {
       const response = await firstValueFrom(
-        this.queryService.regenerateQuestion(reviewDraft.threadId, this.activeConversationId || undefined),
+        this.queryService.regenerateQuestion(
+          reviewDraft.threadId,
+          this.activeConversationId || undefined,
+          neededColumns?.length ? neededColumns : undefined,
+        ),
       );
 
       if (response.status === 'awaiting_review') {
@@ -481,6 +485,48 @@ export class QuotesComponent implements OnInit, OnDestroy {
       this.messages = [...this.messages, this.createErrorMessage(error)];
     } finally {
       this.reviewLoading = false;
+      this.scrollToBottomSoon();
+    }
+  }
+
+  async regenerateEndUserWithColumns(event: { messageId: string; neededColumns: string[] }): Promise<void> {
+    const message = this.messages.find((m) => m.id === event.messageId);
+    if (!message || this.loading) return;
+
+    const question = message.question || '';
+    if (!question) return;
+
+    this.loading = true;
+    this.scrollToBottomSoon();
+
+    try {
+      const response = await firstValueFrom(
+        this.queryService.initiateQuestion(question, this.selectedDbId, this.activeConversationId || undefined, event.neededColumns),
+      );
+
+      const assistantMessage: Message = {
+        id: response.requestId || `msg-${Date.now()}`,
+        role: 'assistant',
+        question,
+        sql: response.generatedSQL || response.editableSQL || '',
+        data: response.data || undefined,
+        error: response.error || undefined,
+        detail: response.detail || undefined,
+        status: response.status,
+        retrievedTables: response.retrievedTables,
+        availableColumns: response.availableColumns,
+        retryCount: response.retryCount,
+        maxRetries: response.maxRetries,
+        maxAttempts: response.maxAttempts,
+        finalError: response.finalError,
+        timestamp: new Date(),
+      };
+
+      this.messages = [...this.messages, assistantMessage];
+    } catch (error) {
+      this.messages = [...this.messages, this.createErrorMessage(error)];
+    } finally {
+      this.loading = false;
       this.scrollToBottomSoon();
     }
   }
@@ -949,6 +995,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
       promptPreview: response.promptPreview,
       retrievedTables: response.retrievedTables,
       lastError: response.lastError,
+      availableColumns: response.availableColumns,
     };
   }
 
@@ -968,6 +1015,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
       promptPreview: message.promptPreview,
       retrievedTables: message.retrievedTables,
       lastError: message.lastError || undefined,
+      availableColumns: message.availableColumns,
     };
   }
 
@@ -1028,6 +1076,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
       maxRetries: response.maxRetries,
       maxAttempts: response.maxAttempts,
       retrievedTables: response.retrievedTables,
+      availableColumns: response.availableColumns,
       schemaContext: response.schemaContext,
       promptPreview: response.promptPreview,
       tokens: response.tokens,

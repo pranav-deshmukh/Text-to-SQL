@@ -256,5 +256,38 @@
       <span *ngIf="message.tokens.prompt">↑ {{ message.tokens.prompt }} prompt</span>
       <span *ngIf="message.tokens.completion">↓ {{ message.tokens.completion }} completion</span>
     </div>
+
+    <div *ngIf="hasAvailableColumns" class="available-columns-section">
+      <button type="button" class="sql-toggle" (click)="showAvailableColumns = !showAvailableColumns">
+        <span class="toggle-icon" [class.expanded]="showAvailableColumns">▶</span>
+        {{ showAvailableColumns ? 'Hide' : 'Show' }} Available Columns ({{ totalAvailableColumnCount }})
+      </button>
+
+      <div *ngIf="showAvailableColumns" class="available-columns-panel">
+        <p class="columns-hint">Select additional columns to include, then click Regenerate.</p>
+        <div *ngFor="let table of message.availableColumns" class="column-table-group">
+          <div class="column-table-name">{{ table.tableName }}</div>
+          <div class="column-list">
+            <label *ngFor="let col of table.columns" class="column-option-needed">
+              <input
+                type="checkbox"
+                [checked]="isNeededColumnSelected(table.tableName + '.' + col.name)"
+                (change)="toggleNeededColumn(table.tableName + '.' + col.name, $any($event.target).checked)"
+              />
+              <span class="col-name">{{ col.name }}</span>
+              <span class="col-type">{{ col.dataType }}</span>
+            </label>
+          </div>
+        </div>
+        <button
+          type="button"
+          class="regenerate-btn"
+          [disabled]="selectedNeededColumns.size === 0"
+          (click)="emitRegenerateWithColumns()"
+        >
+          ↻ Regenerate with {{ selectedNeededColumns.size }} column{{ selectedNeededColumns.size === 1 ? '' : 's' }}
+        </button>
+      </div>
+    </div>
   </div>
 </ng-template>
