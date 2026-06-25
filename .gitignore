@@ -12,6 +12,9 @@ web/.env.*
 services/query-engine/node_modules/
 web/node_modules/
 
+# Seed Files
+services/Data/seed/
+
 # Python virtual environment
 services/query-engine-py/.venv/
 
