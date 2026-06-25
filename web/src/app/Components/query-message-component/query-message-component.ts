@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild } from '@angular/core';
+import { Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, Output, SimpleChanges, ViewChild } from '@angular/core';
 import { AgentStep, Message } from '../../Models/message';
 import { ExportFormat, ResultExportService } from '../../Services/result-export.service';
 
@@ -17,6 +17,7 @@ export class QueryMessageComponent implements OnChanges {
   readonly pageSize = 100;
   readonly downloadMenuOffset = 8;
   @Input({ required: true }) message!: Message;
+  @Output() regenerateWithColumns = new EventEmitter<{ messageId: string; neededColumns: string[] }>();
   @ViewChild('downloadTrigger') private downloadTrigger?: ElementRef<HTMLButtonElement>;
   @ViewChild('downloadMenu') private downloadMenu?: ElementRef<HTMLDivElement>;
 
@@ -35,6 +36,8 @@ export class QueryMessageComponent implements OnChanges {
   exportErrorMessage: string | null = null;
   currentPage = 1;
   showColumnSelector = false;
+  showAvailableColumns = false;
+  selectedNeededColumns = new Set<string>();
   private selectedColumns = new Set<string>();
   private lastMessageId: string | null = null;
   private lastColumnsKey = '';
@@ -558,5 +561,34 @@ export class QueryMessageComponent implements OnChanges {
 
   showAttemptFinalError(index: number): boolean {
     return this.isLastAttempt(index) && !!this.message.finalError;
+  }
+
+  get hasAvailableColumns(): boolean {
+    return !!this.message.availableColumns?.length;
+  }
+
+  get totalAvailableColumnCount(): number {
+    if (!this.message.availableColumns) return 0;
+    return this.message.availableColumns.reduce((sum, table) => sum + table.columns.length, 0);
+  }
+
+  toggleNeededColumn(qualifiedName: string, isChecked: boolean): void {
+    if (isChecked) {
+      this.selectedNeededColumns.add(qualifiedName);
+    } else {
+      this.selectedNeededColumns.delete(qualifiedName);
+    }
+  }
+
+  isNeededColumnSelected(qualifiedName: string): boolean {
+    return this.selectedNeededColumns.has(qualifiedName);
+  }
+
+  emitRegenerateWithColumns(): void {
+    if (this.selectedNeededColumns.size === 0) return;
+    this.regenerateWithColumns.emit({
+      messageId: this.message.id,
+      neededColumns: Array.from(this.selectedNeededColumns),
+    });
   }
 }

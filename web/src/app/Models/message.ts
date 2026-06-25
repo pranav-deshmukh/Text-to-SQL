@@ -20,6 +20,7 @@ export interface Message {
   status?: 'success' | 'error' | 'awaiting_review' | 'cancelled';
   allowSqlView?: boolean;
   retrievedTables?: string[];
+  availableColumns?: { tableName: string; columns: { name: string; dataType: string }[] }[];
   schemaContext?: string;
   promptPreview?: {
     systemPrompt: string;

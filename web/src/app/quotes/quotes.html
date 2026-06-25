@@ -205,7 +205,8 @@
 
         <section class="message-list" *ngIf="!historyLoading">
           <app-query-message-component *ngFor="let message of messages; trackBy: trackByMessageId"
-            [message]="message"></app-query-message-component>
+            [message]="message"
+            (regenerateWithColumns)="regenerateEndUserWithColumns($event)"></app-query-message-component>
 
           <div *ngIf="loading" class="loading-row">
             <div class="loading-dots">
@@ -228,7 +229,7 @@
 
         <section *ngIf="pendingReview && !historyLoading" class="review-section">
           <app-sql-review-panel [draft]="pendingReview" [loading]="reviewLoading" (runSql)="runReviewedSql($event)"
-            (regenerate)="regenerateReviewSql()" (cancel)="cancelReview()"></app-sql-review-panel>
+            (regenerate)="regenerateReviewSql($event)" (cancel)="cancelReview()"></app-sql-review-panel>
         </section>
 
         <div *ngIf="historyLoading" class="history-loading">

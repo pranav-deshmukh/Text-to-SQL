@@ -18,6 +18,7 @@ class ReviewSession:
     schema_context: str
     prompt_preview: dict
     retrieved_tables: list[str]
+    available_columns: list[dict]
     created_at: str
     updated_at: str
     last_error: dict | None = None
@@ -57,6 +58,7 @@ def create_review_session(input_data: dict) -> ReviewSession:
         schema_context=input_data["schema_context"],
         prompt_preview=input_data["prompt_preview"],
         retrieved_tables=list(input_data.get("retrieved_tables", [])),
+        available_columns=list(input_data.get("available_columns", [])),
         created_at=now,
         updated_at=now,
         last_error=input_data.get("last_error"),

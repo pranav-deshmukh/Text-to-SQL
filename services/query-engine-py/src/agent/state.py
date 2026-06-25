@@ -4,8 +4,11 @@ from typing import Literal, TypedDict
 class AgentState(TypedDict, total=False):
     question: str
     db_id: str
+    conversation_history: str
+    needed_columns: list[str]
     context: str
     retrieved_tables: list[str]
+    available_columns: list[dict]
     sql: str
     generation_error: str
     validation_error: str

@@ -10,6 +10,7 @@ from agent.review_sessions import (
     get_review_session,
     update_review_session,
 )
+from chat.context import load_conversation_history
 from config.db_registry import get_database_config
 from executor.sql_executor import execute_sql
 from llm.gemini import call_llm
@@ -37,16 +38,18 @@ def _build_draft_response(session) -> dict[str, Any]:
         "schemaContext": session.schema_context,
         "promptPreview": session.prompt_preview,
         "retrievedTables": session.retrieved_tables,
+        "availableColumns": session.available_columns,
         "lastError": session.last_error,
     }
 
 
-async def initiate_review_flow(question: str, user_id: str, db_id: str) -> dict[str, Any]:
+async def initiate_review_flow(question: str, user_id: str, db_id: str, conversation_id: str | None = None) -> dict[str, Any]:
     database = get_database_config(db_id)
     if database is None:
         raise ValueError(f"Unknown database: {db_id}")
+    conversation_history = load_conversation_history(conversation_id, current_db_id=db_id)
     rag_context = await retrieve_context(question, database.qdrant_collection)
-    system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"], question)
+    system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"], question, conversation_history=conversation_history)
     generated_sql = (await call_llm(system_prompt, user_prompt)).strip()
     if not generated_sql or generated_sql.upper() == "ERROR":
         raise ValueError("The language model did not return a usable SQL query.")
@@ -60,22 +63,24 @@ async def initiate_review_flow(question: str, user_id: str, db_id: str) -> dict[
             "schema_context": rag_context["schemaContext"],
             "prompt_preview": {"systemPrompt": system_prompt, "userPrompt": user_prompt},
             "retrieved_tables": _table_names(rag_context["tables"]),
+            "available_columns": rag_context["availableColumns"],
         }
     )
     return _build_draft_response(session)
 
 
-def stream_review_flow(question: str, user_id: str, db_id: str, on_complete=None, response_meta: dict[str, Any] | None = None) -> StreamingResponse:
+def stream_review_flow(question: str, user_id: str, db_id: str, on_complete=None, response_meta: dict[str, Any] | None = None, conversation_id: str | None = None) -> StreamingResponse:
     async def event_generator():
         try:
             database = get_database_config(db_id)
             if database is None:
                 raise ValueError(f"Unknown database: {db_id}")
 
+            conversation_history = load_conversation_history(conversation_id, current_db_id=db_id)
             rag_context = await retrieve_context(question, database.qdrant_collection)
             yield f"event: node_end\ndata: {json.dumps({'node': 'retrieve', 'retrievedTables': _table_names(rag_context['tables']), 'status': 'done'})}\n\n"
 
-            system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"], question)
+            system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"], question, conversation_history=conversation_history)
             generated_sql = (await call_llm(system_prompt, user_prompt)).strip()
             if not generated_sql or generated_sql.upper() == "ERROR":
                 raise ValueError("The language model did not return a usable SQL query.")
@@ -90,6 +95,7 @@ def stream_review_flow(question: str, user_id: str, db_id: str, on_complete=None
                     "schema_context": rag_context["schemaContext"],
                     "prompt_preview": {"systemPrompt": system_prompt, "userPrompt": user_prompt},
                     "retrieved_tables": _table_names(rag_context["tables"]),
+                    "available_columns": rag_context["availableColumns"],
                 }
             )
             payload = _build_draft_response(session)
@@ -159,7 +165,7 @@ async def resume_review_flow(thread_id: str, user_id: str, approved_sql: str) ->
         return _build_draft_response(updated)
 
 
-async def regenerate_review_flow(thread_id: str, user_id: str) -> dict[str, Any]:
+async def regenerate_review_flow(thread_id: str, user_id: str, needed_columns: list[str] | None = None) -> dict[str, Any]:
     session = get_review_session(thread_id, user_id)
     if session is None:
         raise ValueError("Review session not found or has expired.")
@@ -175,13 +181,19 @@ async def regenerate_review_flow(thread_id: str, user_id: str) -> dict[str, Any]
             f"Failed SQL: {session.editable_sql}\n"
             f"Error: {session.last_error['message']}"
         )
+
+    columns_context = ""
+    if needed_columns:
+        columns_context = f"\n\nADDITIONAL COLUMNS the user explicitly wants in the SELECT output: {', '.join(needed_columns)}. Include ALL of these columns in the query results."
+
     enriched_query = (
         f"{session.question} (context: previous SQL failed with {session.last_error['phase']} error: {session.last_error['message']})"
         if session.last_error
         else session.question
     )
     rag_context = await retrieve_context(enriched_query, database.qdrant_collection)
-    system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"] + error_context, session.question)
+    conversation_history = load_conversation_history(session.conversation_id, current_db_id=session.db_id)
+    system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"] + error_context + columns_context, session.question, conversation_history=conversation_history)
     generated_sql = (await call_llm(system_prompt, user_prompt)).strip()
     if not generated_sql or generated_sql.upper() == "ERROR":
         raise ValueError("The language model did not return a usable SQL query on regeneration.")
@@ -193,6 +205,7 @@ async def regenerate_review_flow(thread_id: str, user_id: str) -> dict[str, Any]
             "schema_context": rag_context["schemaContext"],
             "prompt_preview": {"systemPrompt": system_prompt, "userPrompt": user_prompt},
             "retrieved_tables": _table_names(rag_context["tables"]),
+            "available_columns": rag_context["availableColumns"],
             "last_error": None,
         },
     )

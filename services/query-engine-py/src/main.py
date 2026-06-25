@@ -260,7 +260,7 @@ async def query_initiate(request: QueryRequest, raw_request: Request, user: Auth
     conversation, _ = await persist_user_question(user.userId, request.question, request.dbId, request.conversationId)
     if user.role == "tech_team":
         try:
-            draft = await initiate_review_flow(request.question, user.userId, request.dbId)
+            draft = await initiate_review_flow(request.question, user.userId, request.dbId, conversation_id=conversation.conversationId)
             review_message = await persist_review_draft(conversation.conversationId, draft)
             update_review_session(
                 draft["threadId"],
@@ -279,7 +279,7 @@ async def query_initiate(request: QueryRequest, raw_request: Request, user: Auth
             await complete_audit(request_id, "error", {"endpoint": "/query/initiate"})
             raise HTTPException(status_code=400, detail={"error": str(exc), "code": "PY_REVIEW_DRAFT_ERROR"}) from exc
 
-    result = await execute_agent(request.question, request.dbId)
+    result = await execute_agent(request.question, request.dbId, conversation_id=conversation.conversationId, needed_columns=request.neededColumns)
     result["requestId"] = request_id
     result["conversationId"] = conversation.conversationId
 
@@ -346,6 +346,7 @@ async def query_stream(request: QueryRequest, raw_request: Request, user: AuthUs
             request.dbId,
             on_complete=on_complete,
             response_meta={"conversationId": conversation.conversationId, "requestId": request_id},
+            conversation_id=conversation.conversationId,
         )
 
     return stream_agent(
@@ -353,6 +354,7 @@ async def query_stream(request: QueryRequest, raw_request: Request, user: AuthUs
         request.dbId,
         on_complete=on_complete,
         response_meta={"conversationId": conversation.conversationId, "requestId": request_id},
+        conversation_id=conversation.conversationId,
     )
 
 
@@ -425,7 +427,7 @@ async def query_regenerate(request: ReviewRegenerateRequest, user: AuthUser = De
     session = get_review_session(request.threadId, user.userId)
     if session is None:
         raise HTTPException(status_code=404, detail={"error": "Review session not found or has expired.", "code": "REVIEW_SESSION_NOT_FOUND"})
-    result = await regenerate_review_flow(request.threadId, user.userId)
+    result = await regenerate_review_flow(request.threadId, user.userId, needed_columns=request.neededColumns)
     if session.conversation_id and session.assistant_message_id:
         await update_persisted_review_message(session.conversation_id, session.assistant_message_id, {
             "generatedSQL": result.get("generatedSQL"),

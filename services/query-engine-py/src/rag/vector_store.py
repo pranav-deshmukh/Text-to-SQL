@@ -74,9 +74,9 @@ def _to_search_metadata(payload: dict[str, Any] | None) -> dict[str, Any]:
 async def search_documents(collection_name: str, query: str, top_k: int = 5) -> list[SearchResult]:
     client = get_qdrant_client()
     query_vector = await embed(query)
-    results = client.search(
+    response = client.query_points(
         collection_name=collection_name,
-        query_vector=query_vector,
+        query=query_vector,
         limit=top_k,
         with_payload=True,
     )
@@ -87,7 +87,7 @@ async def search_documents(collection_name: str, query: str, top_k: int = 5) -> 
             metadata=_to_search_metadata(r.payload),
             score=r.score,
         )
-        for r in results
+        for r in response.points
     ]
 
 

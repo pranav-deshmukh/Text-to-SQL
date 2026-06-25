@@ -22,6 +22,7 @@ async def retrieve_node(state: AgentState) -> AgentState:
     return {
         "context": rag_result["schemaContext"],
         "retrieved_tables": [table["tableName"] for table in rag_result["tables"]],
+        "available_columns": rag_result["availableColumns"],
     }
 
 
@@ -33,9 +34,15 @@ async def generate_node(state: AgentState) -> AgentState:
                 f"{index + 1}. {message}" for index, message in enumerate(state.get("error_history", []))
             )
 
+        columns_context = ""
+        needed_columns = state.get("needed_columns")
+        if needed_columns:
+            columns_context = f"\n\nADDITIONAL COLUMNS the user explicitly wants in the SELECT output: {', '.join(needed_columns)}. Include ALL of these columns in the query results."
+
         system_prompt, user_prompt = assemble_prompt_from_rag(
-            state.get("context", "") + error_context,
+            state.get("context", "") + error_context + columns_context,
             state["question"],
+            conversation_history=state.get("conversation_history", ""),
         )
         sql = (await call_llm(system_prompt, user_prompt)).strip()
 

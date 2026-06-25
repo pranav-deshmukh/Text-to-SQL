@@ -9,6 +9,16 @@ OUTPUT FORMAT - MANDATORY:
 - If you cannot generate a valid query, return exactly: ERROR
 
 --------------------------------------------------
+STEP 0: CONVERSATION CONTEXT (if provided)
+--------------------------------------------------
+If conversation history is provided, use it to resolve:
+- Pronouns and references ("it", "them", "those", "that")
+- Relative references ("same query", "same for X", "add Y to that", "now for Z")
+- Implied entities or metrics from prior questions
+Do NOT re-run prior queries. Only use history to understand the CURRENT question's intent.
+If the current question is self-contained, ignore the history.
+
+--------------------------------------------------
 STEP 1: UNDERSTAND THE QUESTION
 --------------------------------------------------
 Before generating SQL, identify:
@@ -75,11 +85,24 @@ Return ONLY the SQL query. No markdown. No explanation. No reasoning text.
 """
 
 
-def assemble_prompt_from_rag(retrieved_context: str, user_question: str) -> tuple[str, str]:
-    user_prompt = (
+def assemble_prompt_from_rag(retrieved_context: str, user_question: str, conversation_history: str = "") -> tuple[str, str]:
+    parts: list[str] = []
+
+    if conversation_history:
+        parts.append(
+            "CONVERSATION HISTORY (use ONLY to resolve references in the current question):\n"
+            f"{conversation_history}\n"
+        )
+
+    parts.append(
         "RELEVANT DATABASE CONTEXT (retrieved tables, relationships, views, procedures, and schema metadata):\n"
-        f"{retrieved_context}\n\n"
+        f"{retrieved_context}\n"
+    )
+
+    parts.append(
         "USER QUESTION:\n"
         f"{user_question}"
     )
+
+    user_prompt = "\n".join(parts)
     return SYSTEM_PROMPT, user_prompt

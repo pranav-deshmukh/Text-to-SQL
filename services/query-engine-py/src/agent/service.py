@@ -5,6 +5,7 @@ from typing import Any
 from fastapi.responses import StreamingResponse
 
 from agent.graph import build_agent_graph
+from chat.context import load_conversation_history
 from config.settings import get_settings
 
 agent = build_agent_graph()
@@ -49,7 +50,9 @@ def _get_next_node(update: dict[str, Any]) -> str | None:
     return None
 
 
-async def execute_agent(question: str, db_id: str, on_node_event=None) -> dict[str, Any]:
+async def execute_agent(question: str, db_id: str, on_node_event=None, conversation_id: str | None = None, needed_columns: list[str] | None = None) -> dict[str, Any]:
+    conversation_history = load_conversation_history(conversation_id, current_db_id=db_id)
+
     accumulated: dict[str, Any] = {
         "question": question,
         "db_id": db_id,
@@ -61,7 +64,13 @@ async def execute_agent(question: str, db_id: str, on_node_event=None) -> dict[s
     if on_node_event:
         on_node_event({"node": "retrieve", "maxRetries": settings.agent_max_retries, "maxAttempts": settings.agent_max_retries + 1})
 
-    stream = agent.astream({"question": question, "db_id": db_id}, stream_mode="updates")
+    initial_state: dict[str, Any] = {"question": question, "db_id": db_id}
+    if conversation_history:
+        initial_state["conversation_history"] = conversation_history
+    if needed_columns:
+        initial_state["needed_columns"] = needed_columns
+
+    stream = agent.astream(initial_state, stream_mode="updates")
     async for chunk in stream:
         for node_name, state_update in chunk.items():
             update = dict(state_update)
@@ -100,6 +109,7 @@ async def execute_agent(question: str, db_id: str, on_node_event=None) -> dict[s
         "maxAttempts": settings.agent_max_retries + 1,
         "errorHistory": accumulated.get("error_history", []),
         "retrievedTables": accumulated.get("retrieved_tables", []),
+        "availableColumns": accumulated.get("available_columns", []),
         "error": accumulated.get("generation_error") or accumulated.get("validation_error") or accumulated.get("execution_error"),
         "detail": accumulated.get("generation_error") or accumulated.get("validation_error") or accumulated.get("execution_error"),
         "phase": "generation" if accumulated.get("generation_error") else "validation" if accumulated.get("validation_error") else "execution" if accumulated.get("execution_error") else None,
@@ -111,7 +121,7 @@ async def execute_agent(question: str, db_id: str, on_node_event=None) -> dict[s
     }
 
 
-def stream_agent(question: str, db_id: str, on_complete=None, response_meta: dict[str, Any] | None = None) -> StreamingResponse:
+def stream_agent(question: str, db_id: str, on_complete=None, response_meta: dict[str, Any] | None = None, conversation_id: str | None = None, needed_columns: list[str] | None = None) -> StreamingResponse:
     async def event_generator():
         events: list[dict[str, Any]] = []
 
@@ -119,7 +129,7 @@ def stream_agent(question: str, db_id: str, on_complete=None, response_meta: dic
             events.append(event)
 
         try:
-            result = await execute_agent(question, db_id, on_node_event=collect)
+            result = await execute_agent(question, db_id, on_node_event=collect, conversation_id=conversation_id, needed_columns=needed_columns)
             if response_meta:
                 result.update(response_meta)
             for event in events:
