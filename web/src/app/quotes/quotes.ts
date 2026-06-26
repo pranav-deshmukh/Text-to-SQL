@@ -500,29 +500,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
     this.scrollToBottomSoon();
 
     try {
-      const response = await firstValueFrom(
-        this.queryService.initiateQuestion(question, this.selectedDbId, this.activeConversationId || undefined, event.neededColumns),
-      );
-
-      const assistantMessage: Message = {
-        id: response.requestId || `msg-${Date.now()}`,
-        role: 'assistant',
-        question,
-        sql: response.generatedSQL || response.editableSQL || '',
-        data: response.data || undefined,
-        error: response.error || undefined,
-        detail: response.detail || undefined,
-        status: response.status,
-        retrievedTables: response.retrievedTables,
-        availableColumns: response.availableColumns,
-        retryCount: response.retryCount,
-        maxRetries: response.maxRetries,
-        maxAttempts: response.maxAttempts,
-        finalError: response.finalError,
-        timestamp: new Date(),
-      };
-
-      this.messages = [...this.messages, assistantMessage];
+      await this.submitAgentQuery(question, event.neededColumns);
     } catch (error) {
       this.messages = [...this.messages, this.createErrorMessage(error)];
     } finally {
@@ -717,7 +695,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
     this.conversations = this.conversations.filter((conversation) => conversation.conversationId !== conversationId);
   }
 
-  private async submitAgentQuery(question: string): Promise<void> {
+  private async submitAgentQuery(question: string, neededColumns?: string[]): Promise<void> {
     const assistantId = crypto.randomUUID();
     const dbId = this.selectedDbId;
     const conversationId = this.activeConversationId || undefined;
@@ -821,6 +799,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
           },
         },
         conversationId,
+        neededColumns,
       );
     } catch (error) {
       const fallbackResponse = (error as Error & { response?: QueryResponse }).response;
@@ -844,7 +823,7 @@ export class QuotesComponent implements OnInit, OnDestroy {
         return;
       }
 
-      const response = await firstValueFrom(this.queryService.initiateQuestion(question, dbId, conversationId));
+      const response = await firstValueFrom(this.queryService.initiateQuestion(question, dbId, conversationId, neededColumns));
       if (response.status === 'awaiting_review') {
         this.pendingReview = this.toReviewDraft(response, assistantId);
       }

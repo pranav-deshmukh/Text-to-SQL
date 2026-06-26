@@ -37,7 +37,7 @@ async def generate_node(state: AgentState) -> AgentState:
         columns_context = ""
         needed_columns = state.get("needed_columns")
         if needed_columns:
-            columns_context = f"\n\nADDITIONAL COLUMNS the user explicitly wants in the SELECT output: {', '.join(needed_columns)}. Include ALL of these columns in the query results."
+            columns_context = f"\n\nADDITIONAL COLUMNS the user explicitly wants in the SELECT output: {', '.join(needed_columns)}. You MUST include ALL of these columns in the SELECT clause. Rewrite the query to return these columns as individual result columns alongside the answer."
 
         system_prompt, user_prompt = assemble_prompt_from_rag(
             state.get("context", "") + error_context + columns_context,

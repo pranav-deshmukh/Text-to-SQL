@@ -93,8 +93,14 @@ export class QueryService {
     return this.http.get<AuditLogsResponse>(`${this.apiUrl}/logs/api?${params.toString()}`);
   }
 
-  async streamAgentQuestion(question: string, dbId: string, handlers: AgentStreamHandlers, conversationId?: string): Promise<void> {
-    const payload: QueryRequest = { question, dbId, conversationId };
+  async streamAgentQuestion(
+    question: string,
+    dbId: string,
+    handlers: AgentStreamHandlers,
+    conversationId?: string,
+    neededColumns?: string[],
+  ): Promise<void> {
+    const payload: QueryRequest = { question, dbId, conversationId, neededColumns };
     const token = this.authService.token;
     const response = await fetch(`${this.apiUrl}/query/stream`, {
       method: 'POST',
