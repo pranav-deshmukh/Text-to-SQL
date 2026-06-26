@@ -340,6 +340,7 @@ async def query_stream(request: QueryRequest, raw_request: Request, user: AuthUs
             await complete_audit(request_id, "error", {"endpoint": "/query/stream"})
 
     if user.role == "tech_team":
+        print(f"[/query/stream] tech_team neededColumns={request.neededColumns}")
         return stream_review_flow(
             request.question,
             user.userId,
@@ -347,6 +348,7 @@ async def query_stream(request: QueryRequest, raw_request: Request, user: AuthUs
             on_complete=on_complete,
             response_meta={"conversationId": conversation.conversationId, "requestId": request_id},
             conversation_id=conversation.conversationId,
+            needed_columns=request.neededColumns,
         )
 
     return stream_agent(
@@ -355,6 +357,7 @@ async def query_stream(request: QueryRequest, raw_request: Request, user: AuthUs
         on_complete=on_complete,
         response_meta={"conversationId": conversation.conversationId, "requestId": request_id},
         conversation_id=conversation.conversationId,
+        needed_columns=request.neededColumns,
     )
 
 

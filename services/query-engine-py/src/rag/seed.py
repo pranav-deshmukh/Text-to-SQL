@@ -1,6 +1,7 @@
 """
 Seed script — introspects SQL Server metadata, embeds, and stores in Qdrant.
 Run with: python -m rag.seed --db <dbId|all>
+python -m rag.seed --db all
 """
 
 import argparse

@@ -69,7 +69,7 @@ async def initiate_review_flow(question: str, user_id: str, db_id: str, conversa
     return _build_draft_response(session)
 
 
-def stream_review_flow(question: str, user_id: str, db_id: str, on_complete=None, response_meta: dict[str, Any] | None = None, conversation_id: str | None = None) -> StreamingResponse:
+def stream_review_flow(question: str, user_id: str, db_id: str, on_complete=None, response_meta: dict[str, Any] | None = None, conversation_id: str | None = None, needed_columns: list[str] | None = None) -> StreamingResponse:
     async def event_generator():
         try:
             database = get_database_config(db_id)
@@ -80,7 +80,11 @@ def stream_review_flow(question: str, user_id: str, db_id: str, on_complete=None
             rag_context = await retrieve_context(question, database.qdrant_collection)
             yield f"event: node_end\ndata: {json.dumps({'node': 'retrieve', 'retrievedTables': _table_names(rag_context['tables']), 'status': 'done'})}\n\n"
 
-            system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"], question, conversation_history=conversation_history)
+            columns_context = ""
+            if needed_columns:
+                columns_context = f"\n\nADDITIONAL COLUMNS the user explicitly wants in the SELECT output: {', '.join(needed_columns)}. You MUST include ALL of these columns in the SELECT clause. Rewrite the query to return these columns as individual result columns alongside the answer."
+
+            system_prompt, user_prompt = assemble_prompt_from_rag(rag_context["schemaContext"] + columns_context, question, conversation_history=conversation_history)
             generated_sql = (await call_llm(system_prompt, user_prompt)).strip()
             if not generated_sql or generated_sql.upper() == "ERROR":
                 raise ValueError("The language model did not return a usable SQL query.")
@@ -151,6 +155,7 @@ async def resume_review_flow(thread_id: str, user_id: str, approved_sql: str) ->
             "sql": trimmed_sql,
             "data": data,
             "retrievedTables": session.retrieved_tables,
+            "availableColumns": session.available_columns,
         }
     except Exception as exc:
         updated = update_review_session(
@@ -166,6 +171,7 @@ async def resume_review_flow(thread_id: str, user_id: str, approved_sql: str) ->
 
 
 async def regenerate_review_flow(thread_id: str, user_id: str, needed_columns: list[str] | None = None) -> dict[str, Any]:
+    print(f"[ReviewFlow] regenerate called with needed_columns={needed_columns}")
     session = get_review_session(thread_id, user_id)
     if session is None:
         raise ValueError("Review session not found or has expired.")
@@ -184,7 +190,7 @@ async def regenerate_review_flow(thread_id: str, user_id: str, needed_columns: l
 
     columns_context = ""
     if needed_columns:
-        columns_context = f"\n\nADDITIONAL COLUMNS the user explicitly wants in the SELECT output: {', '.join(needed_columns)}. Include ALL of these columns in the query results."
+        columns_context = f"\n\nADDITIONAL COLUMNS the user explicitly wants in the SELECT output: {', '.join(needed_columns)}. You MUST include ALL of these columns in the SELECT clause. Rewrite the query to return these columns as individual result columns alongside the answer."
 
     enriched_query = (
         f"{session.question} (context: previous SQL failed with {session.last_error['phase']} error: {session.last_error['message']})"
