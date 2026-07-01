@@ -44,6 +44,31 @@ At minimum, keep these aligned with the TypeScript service:
 - `DB_REGISTRY`
 - `APP_ENV`
 
+For embeddings, the Python service now supports an env switch between Google and Hugging Face without removing the existing Google path:
+
+- `EMBEDDING_PROVIDER=google` uses the current Google embedding flow
+- `EMBEDDING_PROVIDER=huggingface` uses Hugging Face inference for embeddings
+- `EMBEDDING_MODEL=gemini-embedding-001` is the default Google embedding model
+- `EMBEDDING_MODEL=Qwen/Qwen3-Embedding-8B` is the Hugging Face model id for Qwen3 Embedding 8B
+- `EMBEDDING_MODEL=qwen3-embedding:8b` is also accepted and normalized to the Hugging Face model id
+- `HUGGINGFACE_API_KEY` is optional for public access but should be set when your endpoint or quota requires authentication
+- `EMBEDDING_VECTOR_SIZE` is optional and can override the default dimension for the selected provider
+
+Example `.env` values for Hugging Face:
+
+```env
+EMBEDDING_PROVIDER=huggingface
+EMBEDDING_MODEL=qwen3-embedding:8b
+EMBEDDING_VECTOR_SIZE=4096
+HUGGINGFACE_API_KEY=your_token_if_needed
+```
+
+If you switch providers for an existing Qdrant collection, the collection's vector size must match the active embedding model. Reseed into a fresh collection, or recreate the existing collection before running:
+
+```powershell
+python -m rag.seed --db all
+```
+
 ## Do I Need To Install Dependencies Every Time?
 
 No.

@@ -53,6 +53,7 @@ export class QueryMessageComponent implements OnChanges {
     }
 
     this.initializeColumnSelection();
+    this.initializeAvailableColumnSelection();
     this.currentPage = 1;
     this.closeDownloadMenu();
     this.closeColumnSelector();
@@ -479,6 +480,20 @@ export class QueryMessageComponent implements OnChanges {
       this.selectedColumns = new Set<string>(columns);
       this.lastMessageId = messageId;
       this.lastColumnsKey = columnsKey;
+    }
+  }
+
+  private initializeAvailableColumnSelection(): void {
+    this.selectedNeededColumns.clear();
+    const resultColumns = this.message.data?.columns ?? [];
+    if (resultColumns.length === 0 || !this.message.availableColumns) return;
+    const resultColumnSet = new Set(resultColumns.map(c => c.toLowerCase()));
+    for (const table of this.message.availableColumns) {
+      for (const col of table.columns) {
+        if (resultColumnSet.has(col.name.toLowerCase())) {
+          this.selectedNeededColumns.add(`${table.tableName}.${col.name}`);
+        }
+      }
     }
   }
 
