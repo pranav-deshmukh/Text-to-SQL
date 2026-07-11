@@ -169,17 +169,22 @@ async def retrieve_context_detailed(
 ) -> dict:
     effective_top_k = top_k if top_k is not None else settings.rag_top_k
     effective_threshold = score_threshold if score_threshold is not None else settings.rag_score_threshold
+    search_mode = settings.rag_mode.strip().lower()
 
-    if settings.rag_mode.lower() == "all":
+    if search_mode == "all":
         matches = await get_all_documents(collection_name)
         print(f"[Retriever] 📦 Loaded ALL {len(matches)} chunks from {collection_name}")
     else:
         search_top_k = max(effective_top_k, 1)
         raw_matches = await search_documents(collection_name, question, search_top_k)
-        matches = [match for match in raw_matches if match.score >= effective_threshold]
-        if not matches:
+        if search_mode == "hybrid":
             matches = raw_matches
-        print(f"[Retriever] 🔍 Vector search returned {len(matches)} chunks (top_k={search_top_k}, threshold={effective_threshold})")
+            print(f"[Retriever] 🔍 Hybrid search returned {len(matches)} chunks (top_k={search_top_k})")
+        else:
+            matches = [match for match in raw_matches if match.score >= effective_threshold]
+            if not matches:
+                matches = raw_matches
+            print(f"[Retriever] 🔍 Vector search returned {len(matches)} chunks (top_k={search_top_k}, threshold={effective_threshold})")
 
         # Graph expansion: follow referenced tables to fill in join paths
         matches = await _graph_expand_table_chunks(collection_name, matches)

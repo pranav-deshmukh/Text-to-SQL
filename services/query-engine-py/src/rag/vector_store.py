@@ -4,6 +4,7 @@ from typing import Any
 
 from google.genai import Client
 from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, Fusion, FusionQuery, PointStruct, Prefetch, SparseVector, SparseVectorParams, VectorParams
 
 from config.settings import get_settings
 
@@ -15,6 +16,16 @@ DEFAULT_VECTOR_SIZES = {
 HUGGINGFACE_MODEL_ALIASES = {
     "qwen3-embedding:8b": "Qwen/Qwen3-Embedding-8B",
 }
+
+DENSE_VECTOR_NAME = "dense"
+SPARSE_VECTOR_NAME = "sparse"
+
+
+def _collection_migration_error(collection_name: str) -> ValueError:
+    return ValueError(
+        f'Collection "{collection_name}" is not configured for hybrid dense+sparse retrieval. '
+        "Recreate or version the collection, then reseed it before using hybrid search."
+    )
 
 
 @dataclass
@@ -57,6 +68,19 @@ def get_huggingface_client():
     )
 
 
+@lru_cache(maxsize=1)
+def get_sparse_embedding_client():
+    try:
+        from fastembed import SparseTextEmbedding
+    except ImportError as exc:
+        raise ValueError(
+            "fastembed is required for hybrid RAG search. Run 'pip install -e .' in services/query-engine-py "
+            "after pulling the updated pyproject.toml dependencies."
+        ) from exc
+
+    return SparseTextEmbedding(model_name=get_settings().sparse_embedding_model)
+
+
 def get_embedding_provider() -> str:
     provider = get_settings().embedding_provider.strip().lower()
     if provider not in DEFAULT_VECTOR_SIZES:
@@ -97,16 +121,31 @@ async def init_vector_store(collection_name: str) -> None:
     if not exists:
         client.create_collection(
             collection_name=collection_name,
-            vectors_config={"size": vector_size, "distance": "Cosine"},
+            vectors_config={
+                DENSE_VECTOR_NAME: VectorParams(size=vector_size, distance=Distance.COSINE),
+            },
+            sparse_vectors_config={
+                SPARSE_VECTOR_NAME: SparseVectorParams(),
+            },
         )
         return
 
     collection_info = client.get_collection(collection_name)
     vectors = getattr(collection_info.config.params, "vectors", None)
-    existing_size = getattr(vectors, "size", None)
-    if isinstance(vectors, dict):
-        existing_size = vectors.get("size")
+    sparse_vectors = getattr(collection_info.config.params, "sparse_vectors", None)
 
+    dense_params = None
+    if isinstance(vectors, dict):
+        dense_params = vectors.get(DENSE_VECTOR_NAME)
+        if dense_params is None and "size" in vectors:
+            raise _collection_migration_error(collection_name)
+    elif vectors is not None and getattr(vectors, "size", None) is not None:
+        raise _collection_migration_error(collection_name)
+
+    if dense_params is None:
+        raise _collection_migration_error(collection_name)
+
+    existing_size = getattr(dense_params, "size", None)
     if existing_size is not None and int(existing_size) != vector_size:
         provider = get_embedding_provider()
         model = get_embedding_model()
@@ -115,6 +154,15 @@ async def init_vector_store(collection_name: str) -> None:
             f"but {provider}/{model} is configured for {vector_size}. "
             "Use a different collection or recreate the existing one before reseeding."
         )
+
+    sparse_config = None
+    if isinstance(sparse_vectors, dict):
+        sparse_config = sparse_vectors.get(SPARSE_VECTOR_NAME)
+    elif sparse_vectors is not None:
+        sparse_config = sparse_vectors
+
+    if sparse_config is None:
+        raise _collection_migration_error(collection_name)
 
 
 def _embed_with_huggingface(text: str) -> list[float]:
@@ -149,6 +197,17 @@ async def embed(text: str) -> list[float]:
     return result.embeddings[0].values if result.embeddings else []
 
 
+def sparse_embed(text: str) -> SparseVector:
+    embeddings = list(get_sparse_embedding_client().embed([text]))
+    if not embeddings:
+        return SparseVector(indices=[], values=[])
+
+    sparse = embeddings[0]
+    indices = [int(index) for index in getattr(sparse, "indices", [])]
+    values = [float(value) for value in getattr(sparse, "values", [])]
+    return SparseVector(indices=indices, values=values)
+
+
 def _to_search_metadata(payload: dict[str, Any] | None) -> dict[str, Any]:
     if not payload:
         return {}
@@ -157,13 +216,40 @@ def _to_search_metadata(payload: dict[str, Any] | None) -> dict[str, Any]:
 
 async def search_documents(collection_name: str, query: str, top_k: int = 5) -> list[SearchResult]:
     client = get_qdrant_client()
-    query_vector = await embed(query)
-    response = client.query_points(
-        collection_name=collection_name,
-        query=query_vector,
-        limit=top_k,
-        with_payload=True,
-    )
+    settings = get_settings()
+    search_mode = settings.rag_mode.strip().lower()
+
+    if search_mode == "hybrid":
+        query_vector = await embed(query)
+        sparse_query = sparse_embed(query)
+        prefetch_limit = max(top_k, settings.rag_hybrid_prefetch_k)
+
+        fusion_name = settings.rag_hybrid_fusion.strip().lower()
+        if fusion_name == "dbsf":
+            fusion = Fusion.DBSF
+        else:
+            fusion = Fusion.RRF
+
+        response = client.query_points(
+            collection_name=collection_name,
+            prefetch=[
+                Prefetch(query=sparse_query, using=SPARSE_VECTOR_NAME, limit=prefetch_limit),
+                Prefetch(query=query_vector, using=DENSE_VECTOR_NAME, limit=prefetch_limit),
+            ],
+            query=FusionQuery(fusion=fusion),
+            limit=top_k,
+            with_payload=True,
+        )
+    else:
+        query_vector = await embed(query)
+        response = client.query_points(
+            collection_name=collection_name,
+            query=query_vector,
+            using=DENSE_VECTOR_NAME,
+            limit=top_k,
+            with_payload=True,
+        )
+
     return [
         SearchResult(
             id=str(r.payload.get("docId", r.id)) if r.payload else str(r.id),
@@ -238,19 +324,27 @@ async def add_documents(collection_name: str, docs: list[dict]) -> None:
     """Upsert documents into Qdrant (safe to re-run)."""
     import asyncio
 
-    from qdrant_client.models import PointStruct
-
     client = get_qdrant_client()
     batch_size = 10
     for i in range(0, len(docs), batch_size):
         batch = docs[i : i + batch_size]
         points = []
         for doc in batch:
-            vector = await embed(doc["text"])
+            dense_vector = await embed(doc["text"])
+            sparse_vector = sparse_embed(doc["text"])
             payload = {"text": doc["text"], "docId": doc["id"]}
             if doc.get("metadata"):
                 payload.update(doc["metadata"])
-            points.append(PointStruct(id=stable_point_id(doc["id"]), vector=vector, payload=payload))
+            points.append(
+                PointStruct(
+                    id=stable_point_id(doc["id"]),
+                    vector={
+                        DENSE_VECTOR_NAME: dense_vector,
+                        SPARSE_VECTOR_NAME: sparse_vector,
+                    },
+                    payload=payload,
+                )
+            )
             await asyncio.sleep(0.5)
         client.upsert(collection_name=collection_name, points=points)
         print(f"   ✅ Upserted batch {i // batch_size + 1} ({len(points)} points)")
