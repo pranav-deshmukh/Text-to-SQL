@@ -28,6 +28,26 @@ def _collection_migration_error(collection_name: str) -> ValueError:
     )
 
 
+def _get_collection_vector_layout(collection_name: str) -> str:
+    client = get_qdrant_client()
+    collection_info = client.get_collection(collection_name)
+    vectors = getattr(collection_info.config.params, "vectors", None)
+    sparse_vectors = getattr(collection_info.config.params, "sparse_vectors", None)
+
+    if isinstance(vectors, dict):
+        has_named_dense = DENSE_VECTOR_NAME in vectors
+        has_sparse = isinstance(sparse_vectors, dict) and SPARSE_VECTOR_NAME in sparse_vectors
+        if has_named_dense and has_sparse:
+            return "hybrid_named"
+        if has_named_dense:
+            return "dense_named"
+
+    if vectors is not None and getattr(vectors, "size", None) is not None:
+        return "legacy_unnamed"
+
+    raise ValueError(f'Collection "{collection_name}" has an unsupported vector configuration.')
+
+
 @dataclass
 class SearchResult:
     id: str
@@ -218,8 +238,12 @@ async def search_documents(collection_name: str, query: str, top_k: int = 5) -> 
     client = get_qdrant_client()
     settings = get_settings()
     search_mode = settings.rag_mode.strip().lower()
+    vector_layout = _get_collection_vector_layout(collection_name)
 
     if search_mode == "hybrid":
+        if vector_layout != "hybrid_named":
+            raise _collection_migration_error(collection_name)
+
         query_vector = await embed(query)
         sparse_query = sparse_embed(query)
         prefetch_limit = max(top_k, settings.rag_hybrid_prefetch_k)
@@ -242,13 +266,16 @@ async def search_documents(collection_name: str, query: str, top_k: int = 5) -> 
         )
     else:
         query_vector = await embed(query)
-        response = client.query_points(
-            collection_name=collection_name,
-            query=query_vector,
-            using=DENSE_VECTOR_NAME,
-            limit=top_k,
-            with_payload=True,
-        )
+        query_kwargs = {
+            "collection_name": collection_name,
+            "query": query_vector,
+            "limit": top_k,
+            "with_payload": True,
+        }
+        if vector_layout in ("hybrid_named", "dense_named"):
+            query_kwargs["using"] = DENSE_VECTOR_NAME
+
+        response = client.query_points(**query_kwargs)
 
     return [
         SearchResult(
