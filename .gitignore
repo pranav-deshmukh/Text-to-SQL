@@ -12,8 +12,8 @@ web/.env.*
 services/query-engine/node_modules/
 web/node_modules/
 
-# Seed Files
-services/Data/seed/
+# Seed Files sharing for now comment if you want to ignore them it's for seeding investment banking db
+# services/Data/seed/ 
 
 # Python virtual environment
 services/query-engine-py/.venv/
