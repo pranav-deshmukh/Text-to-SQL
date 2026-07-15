@@ -54,6 +54,15 @@ For embeddings, the Python service now supports an env switch between Google and
 - `HUGGINGFACE_API_KEY` is optional for public access but should be set when your endpoint or quota requires authentication
 - `EMBEDDING_VECTOR_SIZE` is optional and can override the default dimension for the selected provider
 
+For RAG retrieval mode, the Python service now supports both dense-only similarity search and hybrid dense+sparse search:
+
+- `RAG_MODE=similarity` keeps the existing dense-only search path
+- `RAG_MODE=hybrid` fuses dense and keyword search in Qdrant
+- `RAG_MODE=all` bypasses ranking and loads all chunks
+- `RAG_HYBRID_PREFETCH_K=50` controls how many dense and sparse candidates are fetched before fusion
+- `RAG_HYBRID_FUSION=rrf` selects fusion mode (`rrf` or `dbsf`)
+- `SPARSE_EMBEDDING_MODEL=Qdrant/bm25` selects the sparse encoder used for keyword search
+
 Example `.env` values for Hugging Face:
 
 ```env
@@ -67,6 +76,17 @@ If you switch providers for an existing Qdrant collection, the collection's vect
 
 ```powershell
 python -m rag.seed --db all
+```
+
+Hybrid search has an additional migration requirement: existing dense-only collections need to be recreated or versioned before reseeding, because hybrid retrieval stores both a named dense vector and a named sparse vector per chunk. The Qdrant server stays the same; only the collection schema changes.
+
+Example `.env` values for hybrid search:
+
+```env
+RAG_MODE=hybrid
+RAG_HYBRID_PREFETCH_K=50
+RAG_HYBRID_FUSION=rrf
+SPARSE_EMBEDDING_MODEL=Qdrant/bm25
 ```
 
 ## Do I Need To Install Dependencies Every Time?
