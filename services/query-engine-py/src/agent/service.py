@@ -12,6 +12,35 @@ agent = build_agent_graph()
 settings = get_settings()
 
 
+def _build_error_payload(
+    *,
+    error: str,
+    detail: str | None = None,
+    phase: str = "internal",
+    code: str,
+    response_meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "status": "error",
+        "error": error,
+        "detail": detail or error,
+        "phase": phase,
+        "code": code,
+        "displayTarget": "error-box",
+        "finalError": {
+            "code": code,
+            "phase": phase,
+            "message": error,
+            "detail": detail or error,
+        },
+        "maxRetries": settings.agent_max_retries,
+        "maxAttempts": settings.agent_max_retries + 1,
+    }
+    if response_meta:
+        payload.update(response_meta)
+    return payload
+
+
 @dataclass
 class AgentNodeUpdate:
     node: str
@@ -94,6 +123,14 @@ async def execute_agent(question: str, db_id: str, on_node_event=None, conversat
                     on_node_event({"node": next_node, "maxRetries": settings.agent_max_retries, "maxAttempts": settings.agent_max_retries + 1})
 
     success = accumulated.get("status") == "success"
+    error_message = accumulated.get("generation_error") or accumulated.get("validation_error") or accumulated.get("execution_error")
+    error_detail = None
+    error_history = accumulated.get("error_history", [])
+    if error_history:
+        error_detail = error_history[-1]
+    if not error_detail:
+        error_detail = error_message
+
     return {
         "question": question,
         "sql": accumulated.get("sql", ""),
@@ -107,16 +144,18 @@ async def execute_agent(question: str, db_id: str, on_node_event=None, conversat
         "retryCount": accumulated.get("retry_count", 0),
         "maxRetries": settings.agent_max_retries,
         "maxAttempts": settings.agent_max_retries + 1,
-        "errorHistory": accumulated.get("error_history", []),
+        "errorHistory": error_history,
         "retrievedTables": accumulated.get("retrieved_tables", []),
         "availableColumns": accumulated.get("available_columns", []),
-        "error": accumulated.get("generation_error") or accumulated.get("validation_error") or accumulated.get("execution_error"),
-        "detail": accumulated.get("generation_error") or accumulated.get("validation_error") or accumulated.get("execution_error"),
+        "error": error_message,
+        "detail": error_detail,
         "phase": "generation" if accumulated.get("generation_error") else "validation" if accumulated.get("validation_error") else "execution" if accumulated.get("execution_error") else None,
+        "displayTarget": None if success else "error-box",
         "finalError": None if success else {
             "code": "PY_AGENT_ERROR",
             "phase": "generation" if accumulated.get("generation_error") else "validation" if accumulated.get("validation_error") else "execution",
-            "message": accumulated.get("generation_error") or accumulated.get("validation_error") or accumulated.get("execution_error") or "Agent failed",
+            "message": error_message or "Agent failed",
+            "detail": error_detail or error_message or "Agent failed",
         },
     }
 
@@ -138,16 +177,13 @@ def stream_agent(question: str, db_id: str, on_complete=None, response_meta: dic
             if on_complete:
                 await on_complete(result)
         except Exception as exc:
-            payload = {
-                "error": str(exc),
-                "detail": str(exc),
-                "phase": "internal",
-                "code": "PY_AGENT_STREAM_ERROR",
-                "maxRetries": settings.agent_max_retries,
-                "maxAttempts": settings.agent_max_retries + 1,
-            }
-            if response_meta:
-                payload.update(response_meta)
+            payload = _build_error_payload(
+                error="Agent stream failed.",
+                detail=str(exc),
+                phase="internal",
+                code="PY_AGENT_STREAM_ERROR",
+                response_meta=response_meta,
+            )
             yield f"event: error\ndata: {json.dumps(payload)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

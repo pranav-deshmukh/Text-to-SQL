@@ -28,6 +28,30 @@ export interface AgentStreamHandlers {
   onError?: (error: QueryResponse) => void;
 }
 
+function buildStreamError(
+  overrides: Partial<QueryResponse> = {},
+): QueryResponse {
+  const message = overrides.error || 'The server did not return a final response.';
+  const detail = overrides.detail || message;
+
+  return {
+    status: 'error',
+    error: message,
+    detail,
+    phase: overrides.phase || 'internal',
+    code: overrides.code || 'STREAM_TERMINATED',
+    displayTarget: overrides.displayTarget || 'error-box',
+    finalError: overrides.finalError || {
+      code: overrides.code || 'STREAM_TERMINATED',
+      phase: overrides.phase || 'internal',
+      message,
+      detail,
+    },
+    conversationId: overrides.conversationId,
+    requestId: overrides.requestId,
+  };
+}
+
 export interface AuditLogFilters {
   q?: string;
   status?: 'success' | 'error' | 'cancelled' | '';
@@ -135,6 +159,7 @@ export class QueryService {
     const decoder = new TextDecoder();
     let buffer = '';
     let eventType = '';
+    let sawTerminalEvent = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -159,23 +184,51 @@ export class QueryService {
             continue;
           }
 
-          const data = JSON.parse(line.slice(6)) as AgentStreamNodeEvent & QueryResponse & { error?: string };
+          let data: AgentStreamNodeEvent & QueryResponse & { error?: string };
+          try {
+            data = JSON.parse(line.slice(6)) as AgentStreamNodeEvent & QueryResponse & { error?: string };
+          } catch {
+            handlers.onError?.(buildStreamError({
+              error: 'The server returned an unreadable streaming response.',
+              detail: line.slice(6),
+              code: 'STREAM_INVALID_PAYLOAD',
+            }));
+            return;
+          }
 
           if (eventType === 'node_end') {
             handlers.onNodeEnd?.(data);
           } else if (eventType === 'done') {
+            sawTerminalEvent = true;
             handlers.onDone?.(data);
           } else if (eventType === 'error') {
+            sawTerminalEvent = true;
             handlers.onError?.({
               ...data,
+              status: 'error',
               error: data.error || 'Agent stream failed',
               detail: data.detail || data.error || 'Agent stream failed',
+              displayTarget: data.displayTarget || 'error-box',
+              finalError: data.finalError || {
+                code: data.code || 'STREAM_ERROR',
+                phase: data.phase || 'internal',
+                message: data.error || 'Agent stream failed',
+                detail: data.detail || data.error || 'Agent stream failed',
+              },
             });
           }
 
           eventType = '';
         }
       }
+    }
+
+    if (!sawTerminalEvent) {
+      handlers.onError?.(buildStreamError({
+        error: 'The server closed the stream before sending a final result.',
+        detail: 'No terminal done/error event was received from /query/stream.',
+        code: 'STREAM_MISSING_TERMINATOR',
+      }));
     }
   }
 }

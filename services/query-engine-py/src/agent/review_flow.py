@@ -19,6 +19,33 @@ from rag.retriever import retrieve_context
 from validator.sql_validator import validate_sql
 
 
+def _build_error_payload(
+    *,
+    error: str,
+    detail: str | None = None,
+    phase: str = "generation",
+    code: str,
+    response_meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "status": "error",
+        "error": error,
+        "detail": detail or error,
+        "phase": phase,
+        "code": code,
+        "displayTarget": "error-box",
+        "finalError": {
+            "code": code,
+            "phase": phase,
+            "message": error,
+            "detail": detail or error,
+        },
+    }
+    if response_meta:
+        payload.update(response_meta)
+    return payload
+
+
 def _table_names(tables: list[dict[str, Any]]) -> list[str]:
     names: list[str] = []
     for table in tables:
@@ -110,14 +137,13 @@ def stream_review_flow(question: str, user_id: str, db_id: str, on_complete=None
             if on_complete:
                 await on_complete(payload)
         except Exception as exc:
-            payload = {
-                "error": str(exc),
-                "detail": str(exc),
-                "phase": "generation",
-                "code": "PY_REVIEW_FLOW_ERROR",
-            }
-            if response_meta:
-                payload.update(response_meta)
+            payload = _build_error_payload(
+                error="SQL review draft generation failed.",
+                detail=str(exc),
+                phase="generation",
+                code="PY_REVIEW_FLOW_ERROR",
+                response_meta=response_meta,
+            )
             yield f"event: error\ndata: {json.dumps(payload)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

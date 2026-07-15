@@ -209,7 +209,20 @@ async def chats_delete(conversation_id: str, user: AuthUser = Depends(require_au
 async def rag_inspect(request: RagInspectRequest, _user: AuthUser = Depends(require_auth)) -> dict:
     database = next((db for db in get_registered_databases() if db.db_id == request.dbId), None)
     if not database:
-        raise HTTPException(status_code=400, detail=f'Unknown database: "{request.dbId}". Use GET /databases for available options.')
+        raise HTTPException(status_code=400, detail={
+            "status": "error",
+            "error": f'Unknown database: "{request.dbId}".',
+            "detail": "Use GET /databases for available options.",
+            "phase": "request",
+            "code": "UNKNOWN_DATABASE",
+            "displayTarget": "error-box",
+            "finalError": {
+                "code": "UNKNOWN_DATABASE",
+                "phase": "request",
+                "message": f'Unknown database: "{request.dbId}".',
+                "detail": "Use GET /databases for available options.",
+            },
+        })
 
     try:
         rag_context = await retrieve_context(request.question, database.qdrant_collection, top_k=request.topK)
@@ -238,7 +251,20 @@ async def rag_inspect(request: RagInspectRequest, _user: AuthUser = Depends(requ
             },
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail={
+            "status": "error",
+            "error": "RAG inspection failed.",
+            "detail": str(exc),
+            "phase": "retrieval",
+            "code": "RAG_INSPECT_ERROR",
+            "displayTarget": "error-box",
+            "finalError": {
+                "code": "RAG_INSPECT_ERROR",
+                "phase": "retrieval",
+                "message": "RAG inspection failed.",
+                "detail": str(exc),
+            },
+        }) from exc
 
 
 @app.post("/query/initiate")
@@ -246,7 +272,20 @@ async def rag_inspect(request: RagInspectRequest, _user: AuthUser = Depends(requ
 async def query_initiate(request: QueryRequest, raw_request: Request, user: AuthUser = Depends(require_auth)) -> dict:
     database = next((db for db in get_registered_databases() if db.db_id == request.dbId), None)
     if not database:
-        raise HTTPException(status_code=400, detail=f'Unknown database: "{request.dbId}". Use GET /databases for available options.')
+        raise HTTPException(status_code=400, detail={
+            "status": "error",
+            "error": f'Unknown database: "{request.dbId}".',
+            "detail": "Use GET /databases for available options.",
+            "phase": "request",
+            "code": "UNKNOWN_DATABASE",
+            "displayTarget": "error-box",
+            "finalError": {
+                "code": "UNKNOWN_DATABASE",
+                "phase": "request",
+                "message": f'Unknown database: "{request.dbId}".',
+                "detail": "Use GET /databases for available options.",
+            },
+        })
 
     request_id = getattr(raw_request.state, "request_id", str(uuid4()))
     begin_audit(request_id, "/query/initiate", request.question, {
@@ -277,7 +316,20 @@ async def query_initiate(request: QueryRequest, raw_request: Request, user: Auth
             start_stage(request_id, "request_completed")
             stage_error(request_id, "request_completed", exc, {"endpoint": "/query/initiate"})
             await complete_audit(request_id, "error", {"endpoint": "/query/initiate"})
-            raise HTTPException(status_code=400, detail={"error": str(exc), "code": "PY_REVIEW_DRAFT_ERROR"}) from exc
+            raise HTTPException(status_code=400, detail={
+                "status": "error",
+                "error": "SQL review draft generation failed.",
+                "detail": str(exc),
+                "phase": "generation",
+                "code": "PY_REVIEW_DRAFT_ERROR",
+                "displayTarget": "error-box",
+                "finalError": {
+                    "code": "PY_REVIEW_DRAFT_ERROR",
+                    "phase": "generation",
+                    "message": "SQL review draft generation failed.",
+                    "detail": str(exc),
+                },
+            }) from exc
 
     result = await execute_agent(request.question, request.dbId, conversation_id=conversation.conversationId, needed_columns=request.neededColumns)
     result["requestId"] = request_id
@@ -301,7 +353,20 @@ async def query_initiate(request: QueryRequest, raw_request: Request, user: Auth
 async def query_stream(request: QueryRequest, raw_request: Request, user: AuthUser = Depends(require_auth)):
     database = next((db for db in get_registered_databases() if db.db_id == request.dbId), None)
     if not database:
-        raise HTTPException(status_code=400, detail=f'Unknown database: "{request.dbId}". Use GET /databases for available options.')
+        raise HTTPException(status_code=400, detail={
+            "status": "error",
+            "error": f'Unknown database: "{request.dbId}".',
+            "detail": "Use GET /databases for available options.",
+            "phase": "request",
+            "code": "UNKNOWN_DATABASE",
+            "displayTarget": "error-box",
+            "finalError": {
+                "code": "UNKNOWN_DATABASE",
+                "phase": "request",
+                "message": f'Unknown database: "{request.dbId}".',
+                "detail": "Use GET /databases for available options.",
+            },
+        })
 
     request_id = getattr(raw_request.state, "request_id", str(uuid4()))
     begin_audit(request_id, "/query/stream", request.question, {

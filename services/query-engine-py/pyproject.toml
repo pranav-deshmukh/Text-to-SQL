@@ -25,10 +25,11 @@ dependencies = [
 
 [project.scripts]
 query-engine-py = "main:run"
+query-engine-seed = "seed:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-py-modules = ["main"]
+py-modules = ["main", "seed"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

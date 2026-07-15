@@ -75,7 +75,15 @@ HUGGINGFACE_API_KEY=your_token_if_needed
 If you switch providers for an existing Qdrant collection, the collection's vector size must match the active embedding model. Reseed into a fresh collection, or recreate the existing collection before running:
 
 ```powershell
-python -m rag.seed --db all
+python seed.py --db all
+```
+
+Use `python seed.py`, not `python -m rag.seed`, in this workspace. This machine already has another project exposing a top-level `rag` package, so `python -m rag.seed` can resolve to the wrong repo.
+
+If you have already installed this service with `pip install -e .`, you can also use:
+
+```powershell
+query-engine-seed --db all
 ```
 
 Hybrid search has an additional migration requirement: existing dense-only collections need to be recreated or versioned before reseeding, because hybrid retrieval stores both a named dense vector and a named sparse vector per chunk. The Qdrant server stays the same; only the collection schema changes.
@@ -87,6 +95,13 @@ RAG_MODE=hybrid
 RAG_HYBRID_PREFETCH_K=50
 RAG_HYBRID_FUSION=rrf
 SPARSE_EMBEDDING_MODEL=Qdrant/bm25
+```
+
+Example reseed commands:
+
+```powershell
+python seed.py --db InvestmentBankingPortfolioManagement
+python seed.py --db all
 ```
 
 ## Do I Need To Install Dependencies Every Time?

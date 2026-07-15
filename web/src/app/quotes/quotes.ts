@@ -781,12 +781,18 @@ export class QuotesComponent implements OnInit, OnDestroy {
             this.updateAgentMessage(assistantId, (message) => ({
               ...message,
               conversationId: streamError.conversationId || message.conversationId,
+              status: 'error',
               error: streamError.error,
               detail: streamError.detail,
               phase: streamError.phase,
-              displayTarget: streamError.displayTarget,
+              displayTarget: streamError.displayTarget || 'error-box',
               code: streamError.code,
-              finalError: streamError.finalError,
+              finalError: streamError.finalError || {
+                code: streamError.code || 'STREAM_ERROR',
+                phase: streamError.phase || 'internal',
+                message: streamError.error || 'Agent stream failed',
+                detail: streamError.detail,
+              },
               retryCount: streamError.retryCount ?? message.retryCount,
               maxRetries: streamError.maxRetries ?? message.maxRetries,
               maxAttempts: streamError.maxAttempts ?? message.maxAttempts,
@@ -809,12 +815,13 @@ export class QuotesComponent implements OnInit, OnDestroy {
           this.pendingReview = this.toReviewDraft(fallbackResponse, assistantId);
         }
 
+        const fallbackMessage = this.createAssistantMessage({
+          ...fallbackResponse,
+          sql: fallbackResponse.sql || fallbackResponse.generatedSQL,
+        });
         this.updateAgentMessage(assistantId, (message) => ({
           ...message,
-          ...this.createAssistantMessage({
-            ...fallbackResponse,
-            sql: fallbackResponse.sql || fallbackResponse.generatedSQL,
-          }),
+          ...fallbackMessage,
           id: message.id,
           timestamp: message.timestamp,
           agentSteps: this.buildFallbackAgentSteps(fallbackResponse),
@@ -823,22 +830,36 @@ export class QuotesComponent implements OnInit, OnDestroy {
         return;
       }
 
-      const response = await firstValueFrom(this.queryService.initiateQuestion(question, dbId, conversationId, neededColumns));
-      if (response.status === 'awaiting_review') {
-        this.pendingReview = this.toReviewDraft(response, assistantId);
-      }
+      try {
+        const response = await firstValueFrom(this.queryService.initiateQuestion(question, dbId, conversationId, neededColumns));
+        if (response.status === 'awaiting_review') {
+          this.pendingReview = this.toReviewDraft(response, assistantId);
+        }
 
-      this.updateAgentMessage(assistantId, (message) => ({
-        ...message,
-        ...this.createAssistantMessage({
-          ...response,
-          sql: response.sql || response.generatedSQL,
-        }),
-        id: message.id,
-        timestamp: message.timestamp,
-        agentSteps: this.buildFallbackAgentSteps(response),
-      }));
-      await this.handleConversationMutation(response.conversationId);
+        this.updateAgentMessage(assistantId, (message) => ({
+          ...message,
+          ...this.createAssistantMessage({
+            ...response,
+            sql: response.sql || response.generatedSQL,
+          }),
+          id: message.id,
+          timestamp: message.timestamp,
+          agentSteps: this.buildFallbackAgentSteps(response),
+        }));
+        await this.handleConversationMutation(response.conversationId);
+      } catch (fallbackError) {
+        const errorMessage = this.createErrorMessage(fallbackError);
+        this.updateAgentMessage(assistantId, (message) => ({
+          ...message,
+          ...errorMessage,
+          id: message.id,
+          conversationId: errorMessage.conversationId || message.conversationId,
+          timestamp: message.timestamp,
+          agentSteps: (message.agentSteps || []).map((step) =>
+            step.status === 'running' ? { ...step, status: 'error', detail: errorMessage.error } : step,
+          ),
+        }));
+      }
     }
   }
 
@@ -1033,6 +1054,16 @@ export class QuotesComponent implements OnInit, OnDestroy {
   }
 
   private createAssistantMessage(response: QueryResponse): Message {
+    const derivedDisplayTarget = response.displayTarget || (response.error ? 'error-box' : undefined);
+    const derivedFinalError = response.finalError || (response.error
+      ? {
+          code: response.code || 'API_REQUEST_FAILED',
+          phase: response.phase || 'internal',
+          message: response.error,
+          detail: response.detail,
+        }
+      : undefined);
+
     return {
       id: crypto.randomUUID(),
       conversationId: response.conversationId,
@@ -1048,9 +1079,9 @@ export class QuotesComponent implements OnInit, OnDestroy {
       error: response.error,
       detail: response.detail,
       phase: response.phase,
-      displayTarget: response.displayTarget,
+      displayTarget: derivedDisplayTarget,
       code: response.code,
-      finalError: response.finalError,
+      finalError: derivedFinalError,
       retryCount: response.retryCount,
       maxRetries: response.maxRetries,
       maxAttempts: response.maxAttempts,
@@ -1071,14 +1102,20 @@ export class QuotesComponent implements OnInit, OnDestroy {
         id: crypto.randomUUID(),
         conversationId: apiError?.conversationId,
         role: 'assistant',
+        status: 'error',
         error: apiError?.error || error.message || 'Failed to connect to query engine',
         detail: apiError?.detail,
         sql: this.isTechTeam ? apiError?.sql : undefined,
         allowSqlView: this.isTechTeam,
         phase: apiError?.phase,
-        displayTarget: apiError?.displayTarget,
+        displayTarget: apiError?.displayTarget || 'error-box',
         code: apiError?.code,
-        finalError: apiError?.finalError,
+        finalError: apiError?.finalError || {
+          code: apiError?.code || 'HTTP_REQUEST_FAILED',
+          phase: apiError?.phase || 'internal',
+          message: apiError?.error || error.message || 'Failed to connect to query engine',
+          detail: apiError?.detail,
+        },
         retryCount: apiError?.retryCount,
         maxRetries: apiError?.maxRetries,
         maxAttempts: apiError?.maxAttempts,
@@ -1089,7 +1126,14 @@ export class QuotesComponent implements OnInit, OnDestroy {
     return {
       id: crypto.randomUUID(),
       role: 'assistant',
+      status: 'error',
       error: error instanceof Error ? error.message : 'Failed to connect to query engine',
+      displayTarget: 'error-box',
+      finalError: {
+        code: 'CLIENT_REQUEST_FAILED',
+        phase: 'internal',
+        message: error instanceof Error ? error.message : 'Failed to connect to query engine',
+      },
       timestamp: new Date(),
     };
   }

@@ -360,11 +360,7 @@ export class QueryMessageComponent implements OnChanges {
   }
 
   get showErrorCard(): boolean {
-    if (this.workflowAttempts.length > 0) {
-      return false;
-    }
-
-    return !!this.message.finalError || (!!this.message.error && this.message.displayTarget !== 'sql-box');
+    return !!this.message.finalError || !!this.message.error;
   }
 
   get errorCardTitle(): string {
